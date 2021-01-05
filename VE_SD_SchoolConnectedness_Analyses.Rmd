@@ -1,0 +1,2133 @@
+---
+title: "VE_SD_SchoolConnectedness"
+author: "Leigh Gayle Goetschius"
+date: "Date of Last Edit: `r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: TRUE 
+    toc_float: TRUE 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(MplusAutomation)
+library(interactions)
+library(foreign)
+
+```
+
+# Import Data
+
+```{r, eval=FALSE}
+#load('/Volumes/csmonk/csmonk-lab/Data/Fragile_Families_Longitudinal/Leigh_FFCWS/FFCW_core_ffid_transfer.rdata')
+
+FullData = read.spss('/Volumes/csmonk/csmonk-lab/Data/Fragile_Families_Longitudinal/Leigh_FFCWS/FFCW_core_ffid_transfer.sav',to.data.frame=TRUE, use.value.labels = FALSE)
+
+```
+# Preparing the Data
+
+The composite scores for violence exposure and social deprivation are calculated exactly how they're done in Hein et al., 2020 in SCAN. 
+
+## Creating Some Initial Flags
+
+###Creating a variable to indicate whether child lived with mother most of the time at each time point
+```{r, eval=FALSE}
+FullData$age3cust <- ifelse(FullData$m3a2 == 1 |FullData$m3a2 == 2, "1", "0")
+FullData$age5cust <- ifelse(FullData$m4a2 == 1 |FullData$m4a2 == 2, "1", "0")
+FullData$age9cust <- ifelse(FullData$m5a2 == 1 |FullData$m5a2 == 2, "1", "0")
+```
+###Creating a variable to indicate whether mom was currently married, living with, or romantically involved with baby's father at age 9 (since m5c4 doesn't seem to be recognized)
+####FFCWS documentation indicates that they would assign a 1 / yes for the following responses to a4 - 1(married), 4(cohabiting or living together), 5(romantically involved but living apart), -1(refused), -2(don't know)
+####Based on conversations with Colter Mitchell about refusing itself being of interest, will instead only include1, 4, or 5 
+```{r, eval=FALSE}
+FullData$con.m5c4 = ifelse(FullData$m5a4 == 1 | FullData$m5a4 == 4 | FullData$m5a4 == 5, "1", "0")
+```
+###Creating a variable to indicate whether mom was currently in any relationship at each time point
+```{r, eval=FALSE}
+FullData$age3rel = ifelse(FullData$m3d6 == 1 |FullData$m3e2 == 1, "1", "0")
+FullData$age5rel = ifelse(FullData$m4d5 == 1 |FullData$m4e2 == 1, "1", "0")
+FullData$age9rel = ifelse(FullData$con.m5c4 == 1 |FullData$m5d2 == 1, "1", "0")
+```
+###Creating a flag to indicate that the mom said she was not in a relationship - with BF or CP
+```{r, eval=FALSE}
+FullData$age3.norel = ifelse(FullData$m3d6 == 2 & FullData$m3e2 == 2, "1", "0")
+FullData$age5.norel = ifelse(FullData$m4d5 == 2 & FullData$m4e2 == 2, "1", "0")
+FullData$age9.norel = ifelse(FullData$con.m5c4 == 2 & FullData$m5d2 == 2, "1", "0")
+```
+###Creating a flag to indicate that the mom refused to answer question about relationship with BF
+```{r, eval=FALSE}
+FullData$age3.refusebf = ifelse(FullData$m3a4 == -1, "1", "0")
+FullData$age5.refusebf = ifelse(FullData$m4a4 == -1, "1", "0")
+FullData$age9.refusebf = ifelse(FullData$m5a4 == -1, "1", "0")
+```
+###Creating a flag to indicate that the mom refused to answer question about relationship with a CP
+```{r, eval=FALSE}
+FullData$age3.refusecp = ifelse(FullData$m3e2 == -1, "1", "0")
+FullData$age5.refusecp = ifelse(FullData$m4e2 == -1, "1", "0")
+FullData$age9.refusecp = ifelse(FullData$m5d2 == -1, "1", "0")
+```
+
+## Recode for Missing
+-9 (not in wave), -6 (skip), -3(missing), -2(don't know), -1 (refuse)
+
+```{r, eval=FALSE}
+is.na(FullData) <- FullData == -9
+is.na(FullData) <- FullData == -8
+is.na(FullData) <- FullData == -6
+is.na(FullData) <- FullData == -5
+is.na(FullData) <- FullData == -3
+is.na(FullData) <- FullData == -2
+is.na(FullData) <- FullData == -1
+
+
+```
+
+## Select Variables
+
+**Violence Exposure and Social Deprivation Composite Scores**
+The items used in the violence exposure and social deprivation composites come from Hein et al., 2020, SCAN are are the same as those in Goetschius et al., 2020, DCN, Goetschius et al., 2020, JAMA Network Open, and Peckins et al., 2019, PNE. I haven't repeated where they come from here, but their origins can be found in those papers. Additionally, specific papers that T.Hein selected items based on should be referenced in the code below. 
+
+**School Connectedness 9 & 15**
+Items for this come from the Panel Study on Income Dynamics Child Development Supplement (PSID-CDS) (The Panel Study of Income Dynamics Child Development Supplement: User Guide for CDS-III, 2010)
+
+**Age 9 Internalizing and Externalizing Symptoms**
+Items for both of these came from the Child Behavior Checklist (Achenbach & Edelbrock, 1983). The internalizing items came from the anxious/depressed, withdrawn/depressed, and somatic symptoms subscales and the externalizing items came from the rule-breaking and aggressive behavior subscales. 
+
+**Positive Adolescent Function**
+Items from this come from the EPOCH Measure of Adolescent Wellbeing (Kern et al., 2016)
+
+**Adolescent Internalizing Symptoms**
+Items for this come from: 
+- Center for Epidemiologic Studies Depression Scale (CES-D) (Radloff, 1977)
+- Brief Symptom Inventory 18 (BSI-18) (Derogatis & Savitz, 2000)
+
+**Adolescent Externalizing Symptoms**
+Items for this come from:
+- Delinquency: National Longitudinal Study of Adolescent Health (Add Health - (Harris, 2013)
+- Dickman’s Impulsivity scale (Dickman, 1990)
+- Binary substance use variables (alcohol-2+ drinks, cigarettes, marijuana, illegal drugs other than marijuana, prescription drugs w/out prescription)
+
+**Covariates**
+Most of the covariates are pretty self-explanatory, but one requires a bit more information. To get at income I used the poverty ratio that's constructed in the Fragile Families dataset. Because we use data from most of the waves and I don't want to have multiple covariates representing income in my SEM for model degrees of freedom purposes, I calculate the average poverty ratio and use that as the covariate. According to the Fragile Families website, the poverty ratio is the ratio of total household income, as defined in c_1hhinc, to the official poverty thresholds, designated by the U.S. Census Bureau. The thresholds in c_1povca vary by family composition and year. At each wave, we used the poverty thresholds for the year preceding the interview. We calculated separate thresholds based on mother and father reports of household size and composition. However, calculations for married/cohabiting mothers and fathers rely on mother reports of household size and composition. A small number of missing values (don’t know, refused) were treated as 0 in household membership counts.
+
+**Primary Caregiver Relationship**
+Used this to determine who the primary caregiver generally was for the reported data at the study waves included in the violence exposure and social deprivation composites as well as the externalizing and internalizing at age 9. 
+
+
+```{r, eval=FALSE}
+Data.ThreatDepVars = FullData %>% 
+  dplyr::select( m1b2, cm1edu,cm2md_case_con,cm2md_case_lib,m2b17a,m2b17b,m2b17c,m2b17d,m2b17e,m2b17f,IH3j10,IH3j11,IH3j13,IH3j14,IH3j15,IH3j16,IH3j17,IH3j18,IH3j19,IH3j3,IH3j4,IH3j6,IH3j7,IH3j8,IH3j9,IH3k1a,IH3k1b,IH3k1c,IH3k1d,IH3k1e,IH3k2a,IH3k2b,IH3k2c,IH3k2d,IH3k2e,IH3l1,IH3l2,IH3l3,IH3l4,IH3l5,IH3l6,IH3l7,m3a2,m3a4,m3d6,m3d9n1,m3d9p,m3d9p1,m3d10,m3d10d,m3d1f,m3d7a,m3d7b,m3d7c,m3d7d,m3d7e,m3d7f,m3d7g,m3d7h,m3d7i,m3d7j,m3d7k,m3d7l,m3d7n,m3d7n1,m3d7p,m3d7p1,m3e2,m3e21b,m3e21f,m3e23a,m3e23b,m3e23c,m3e23d,m3e23e,m3e23f,m3e23g,m3e23h,m3e23i,m3e23j,m3e23k,m3e23l,m3e24,m3h3,m3h3a,m3h4,m3h5,m3h6,m3i6c, m3i6f,m3i23f,m3j36j,m3j36k,m3k26a, m3k26b,IH3r10,IH3s2,IH3s3,IH3s4,IH5g3,IH5g4,IH5g6,IH5g7,IH5g8,IH5g9,IH5g10,IH5g11,IH5g13,IH5g14,IH5g15,IH5g16,IH5g17,IH5g18,IH5g19,IH5h1,IH5h2,IH5h3,IH5h4,IH5h5,IH5h6,IH5h7,m4a2,m4a4,m4d1b,m4d1f,m4d5,m4d7a,m4d7b,m4d7c,m4d7d,m4d7e,m4d7f,m4d7g,m4d7h,m4d7i,m4d7j,m4d7o,m4d7p,m4d10,m4d10a,m4d10e,m4e2,m4e21b,m4e21f,m4e23a,m4e23b,m4e23c,m4e23d,m4e23e,m4e23f,m4e23g,m4e23h,m4e23i,m4e23j,m4e23o,m4e23p,m4e23q,m4e24,m4e24d,m4h3,m4h3a,m4h4,m4h5,m4h6,m4i0m1,m4i0m2,m4i0m3,m4i0m4,m4i0m5,m4i0n1,m4i0n2,m4i0n3,m4i0n4,m4i0n5,m4i23g,m4i23i,m4j22j,m4j22k,m4k25a,m4k25b,IH5r10,IH5s2,IH5s3,IH5s4,IH5s5,o5c10,o5d2,o5d3,o5d4,o5d5,n5g1f,n5g1h,hv5_dsae,hv5_dspr,hv5_dsraw,hv5_dsss,hv5_ppvtae,hv5_ppvtpr,hv5_ppvtraw,hv5_ppvtss,p5m2a,p5m2b,p5m2c,p5m2d,p5m2e,p5m3a,p5m3b,p5m3c,p5m3d,p5m3e,p5m5a,p5m5b,p5m5c,m5a2,m5a4,m5c2b,m5c2f,m5c6a,m5c6b,m5c6c,m5c6d,m5c6e,m5c6f,m5c6g,m5c6h,m5c6i,m5c6j,m5c6o,m5c6p,m5c7,m5c8a,m5c8e,m5d2,m5d19b,m5d19f,m5d20a,m5d20b,m5d20c,m5d20d,m5d20e,m5d20f,m5d20g,m5d20h,m5d20i,m5d20j,m5d20o,m5d20p,m5d21,m5d22,m5d22d,m5e3,m5e3a,m5e4,m5e5,m5e6,m5g21a,m5g21b,m5g21c,m5g21d,m5g21e,m5g21f,m5g21g,m5g21h,m5g21i,m5g21k,m5i25a,m5i25b,p5q1c,p5q1d,p5q1f,p5q1g,p5q1h,p5q1i,p5q1j,p5q1k,p5q1m,p5q1n,p5q2a,p5q2b,p5q2c,p5q2d,p5q2e,ff_id,m1city,age3cust:age9.refusecp)
+
+Data.PAF = FullData %>% 
+  dplyr::select("ff_id", "k6d2b", "k6d2e", "k6d2f", "k6d2g", "k6d2h", "k6d2i", "k6d2k", "k6d2l", "k6d2m", "k6d2o", "k6d2s", "k6d2u", "k6d2v", "k6d2w", "k6d2y", "k6d2aa", "k6d2ad", "k6d2ae", "k6d2af", "k6d2ah")
+
+Data.AnxDep = FullData %>% 
+  dplyr::select(ff_id, k6d2ag, k6d2ai, k6d2d, k6d2j, k6d2t, k6d2ac, k6d2ak, k6d2c, k6d2n, k6d2x, p6b36, p6b40, p6b52, p6b53, p6b54, p6b68, p6b65, p6b66)
+
+Data.SchoolConn = FullData %>% 
+  dplyr::select("ff_id", "k5e1a", "k5e1b", "k5e1c", "k5e1d", "k6b1a", "k6b1b", "k6b1c", "k6b1d")
+
+Extern_Variables = FullData %>% 
+  dplyr::select(ff_id, k6d61a:k6d61m, k6d2a, k6d2p, k6d2r, k6d2z, k6d2ab, k6d2aj, k6d40, k6d48, k6f63, k6f68, k6f74, p6b35, p6b37:p6b39, p6b41:p6b45, p6b57, p6b59, p6b49:p6b51, p6b60:p6b64, p6b67)
+
+CBCL = FullData %>% 
+  dplyr::select(ff_id,p5q3m,p5q3ab,p5q3ac,p5q3ad,p5q3ae,p5q3af,p5q3ah,p5q3ar,p5q3av,p5q3ax,p5q3bq,p5q3ck,p5q3db,p5q3e,p5q3ao,p5q3bk,p5q3bo,p5q3bu,p5q3cu,p5q3cv,p5q3da,p5q3as,p5q3au,p5q3aw,p5q3az,p5q3bb1,p5q3bb2,p5q3bb3,p5q3bb4,p5q3bb5,p5q3bb6,p5q3bb7,p5q3b,p5q3x,p5q3aa,p5q3al,p5q3ap,p5q3bi,p5q3bm,p5q3br,p5q3bs,p5q3bz,p5q3ca,p5q3cj,p5q3cp,p5q3cr,p5q3ct,p5q3cx,p5q3cy,p5q3c,p5q3o,p5q3r,p5q3s,p5q3t,p5q3u,p5q3v,p5q3aj,p5q3bc,p5q3bn,p5q3cf,p5q3cg,p5q3ch,p5q3ci,p5q3cn,p5q3co,p5q3cq,p5q3cw)
+
+Demo_Variables = FullData %>% 
+  dplyr::select(ff_id, ck6ethrace, cm1bsex, cm1inpov, cm2povco, cm3povco, cm4povco, cm5povco, cp6povco)
+
+PC_Info = FullData %>% 
+  select(ff_id, IH3int5, IH5int5, pcg5idstat)
+
+CBCL_15 = FullData %>% 
+  dplyr::select(ff_id, p6b36, p6b40, p6b52, p6b53, p6b54, p6b68, p6b65, p6b66, p6b35, p6b37, p6b38, p6b39, p6b41, p6b42, p6b43, p6b44, p6b45, p6b57, p6b59, p6b49, p6b50, p6b51, p6b60, p6b61, p6b62, p6b63, p6b64, p6b67)
+
+```
+## Recode Variables
+
+### School Connectedness
+We need an extra NA code for the school connectedness variables (particularly the age 15 variables) -- 7 on the school connectedness scale means (NA - Homeschooled)
+
+
+```{r, eval=FALSE}
+is.na(Data.SchoolConn) <- Data.SchoolConn == 7
+
+Data.SchoolConn$k6b1a_r = ((Data.SchoolConn$k6b1a - 5)*-1)
+Data.SchoolConn$k6b1b_r = ((Data.SchoolConn$k6b1b - 5)*-1)
+Data.SchoolConn$k6b1c_r = ((Data.SchoolConn$k6b1c - 5)*-1)
+Data.SchoolConn$k6b1d_r = ((Data.SchoolConn$k6b1d - 5)*-1)
+```
+
+### Teen Report Internalizing
+
+```{r, eval=FALSE}
+Data.AnxDep$k6d2ag_r = ((Data.AnxDep$k6d2ag-5)*-1)
+Data.AnxDep$k6d2ai_r = ((Data.AnxDep$k6d2ai-5)*-1)
+Data.AnxDep$k6d2d_r = ((Data.AnxDep$k6d2d-5)*-1)
+Data.AnxDep$k6d2j_r = ((Data.AnxDep$k6d2j-5)*-1)
+Data.AnxDep$k6d2t_r = ((Data.AnxDep$k6d2t-5)*-1)
+Data.AnxDep$k6d2ac_r = ((Data.AnxDep$k6d2ac-5)*-1)
+Data.AnxDep$k6d2ak_r = ((Data.AnxDep$k6d2ak-5)*-1)
+Data.AnxDep$k6d2c_r = ((Data.AnxDep$k6d2c-5)*-1)
+Data.AnxDep$k6d2n_r = ((Data.AnxDep$k6d2n-5)*-1)
+Data.AnxDep$k6d2x_r = ((Data.AnxDep$k6d2x-5)*-1)
+
+```
+
+### Teen Report Externalizing
+
+```{r, eval=FALSE}
+Extern_Variables = Extern_Variables %>% 
+  mutate(k6d2a_r = (k6d2a-5)*-1,
+         k6d2p_r = (k6d2p-5)*-1,
+         k6d2r_r = (k6d2r-5)*-1,
+         k6d2z_r = (k6d2z-5)*-1,
+         k6d2ab_r = (k6d2ab-5)*-1,
+         k6d2aj_r = (k6d2aj-5)*-1,
+         k6d40_r = (k6d40-3)*-1,
+         k6d48_r = (k6d48-3)*-1,
+         k6f63_r = (k6f63-3)*-1,
+         k6f68_r = (k6f68-3)*-1,
+         k6f74_r = (k6f74-2)*-1)
+```
+
+### Positive Adolescent Function
+
+```{r, eval=FALSE}
+Data.PAF$k6d2b_r = ((Data.PAF$k6d2b-5)*-1)
+Data.PAF$k6d2b_r = 5-Data.PAF$k6d2b
+Data.PAF$k6d2e_r = ((Data.PAF$k6d2e-5)*-1)
+Data.PAF$k6d2f_r = ((Data.PAF$k6d2f-5)*-1)
+Data.PAF$k6d2g_r = ((Data.PAF$k6d2g-5)*-1)
+Data.PAF$k6d2h_r = ((Data.PAF$k6d2h-5)*-1)
+Data.PAF$k6d2i_r = ((Data.PAF$k6d2i-5)*-1)
+Data.PAF$k6d2k_r = ((Data.PAF$k6d2k-5)*-1)
+Data.PAF$k6d2l_r = ((Data.PAF$k6d2l-5)*-1)
+Data.PAF$k6d2m_r = ((Data.PAF$k6d2m-5)*-1)
+Data.PAF$k6d2o_r = ((Data.PAF$k6d2o-5)*-1)
+Data.PAF$k6d2s_r = ((Data.PAF$k6d2s-5)*-1)
+Data.PAF$k6d2u_r = ((Data.PAF$k6d2u-5)*-1)
+Data.PAF$k6d2v_r = ((Data.PAF$k6d2v-5)*-1)
+Data.PAF$k6d2w_r = ((Data.PAF$k6d2w-5)*-1)
+Data.PAF$k6d2y_r = ((Data.PAF$k6d2y-5)*-1)
+Data.PAF$k6d2aa_r = ((Data.PAF$k6d2aa-5)*-1)
+Data.PAF$k6d2ad_r = ((Data.PAF$k6d2ad-5)*-1)
+Data.PAF$k6d2ae_r = ((Data.PAF$k6d2ae-5)*-1)
+Data.PAF$k6d2af_r = ((Data.PAF$k6d2af-5)*-1)
+Data.PAF$k6d2ah_r = ((Data.PAF$k6d2ah-5)*-1)
+
+```
+
+
+## Calculate Violence Exposure and Social Dep Composites
+
+##Abuse 
+###Item selection based on Hunt, Slack, and Berger 2016
+###Convert all items with 7 (yes but not in last year) and 8 (this has never happened) to 0
+```{r, eval=FALSE}
+
+Data.ThreatDepVars$IH3j7<-car::recode(Data.ThreatDepVars$IH3j7 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH3j4<-car::recode(Data.ThreatDepVars$IH3j4 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH3j11<-car::recode(Data.ThreatDepVars$IH3j11 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH3j13<-car::recode(Data.ThreatDepVars$IH3j13 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH3j3<-car::recode(Data.ThreatDepVars$IH3j3 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH3j14<-car::recode(Data.ThreatDepVars$IH3j14 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH3j9<-car::recode(Data.ThreatDepVars$IH3j9 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH3j8<-car::recode(Data.ThreatDepVars$IH3j8 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH3j6<-car::recode(Data.ThreatDepVars$IH3j6 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH3j10<-car::recode(Data.ThreatDepVars$IH3j10 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH5g7<-car::recode(Data.ThreatDepVars$IH5g7 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH5g4<-car::recode(Data.ThreatDepVars$IH5g4 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH5g11<-car::recode(Data.ThreatDepVars$IH5g11 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH5g13<-car::recode(Data.ThreatDepVars$IH5g13 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH5g3<-car::recode(Data.ThreatDepVars$IH5g3 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH5g14<-car::recode(Data.ThreatDepVars$IH5g14 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH5g9<-car::recode(Data.ThreatDepVars$IH5g9 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH5g8<-car::recode(Data.ThreatDepVars$IH5g8 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH5g6<-car::recode(Data.ThreatDepVars$IH5g6 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$IH5g10<-car::recode(Data.ThreatDepVars$IH5g10 , "c(7,8)=0", as.numeric=TRUE,as.factor=FALSE)
+Data.ThreatDepVars$p5q1g<-car::recode(Data.ThreatDepVars$p5q1g, "c(7,8) = 0",  as.numeric = TRUE, as.factor =FALSE)
+Data.ThreatDepVars$p5q1d<-car::recode(Data.ThreatDepVars$p5q1d, "c(7,8) = 0",  as.numeric = TRUE, as.factor =FALSE)
+Data.ThreatDepVars$p5q1k<-car::recode(Data.ThreatDepVars$p5q1k, "c(7,8) = 0",  as.numeric = TRUE, as.factor =FALSE)
+Data.ThreatDepVars$p5q1m<-car::recode(Data.ThreatDepVars$p5q1m, "c(7,8) = 0",  as.numeric = TRUE, as.factor =FALSE)
+Data.ThreatDepVars$p5q1c<-car::recode(Data.ThreatDepVars$p5q1c, "c(7,8) = 0",  as.numeric = TRUE, as.factor =FALSE)
+Data.ThreatDepVars$p5q1n<-car::recode(Data.ThreatDepVars$p5q1n, "c(7,8) = 0",  as.numeric = TRUE, as.factor =FALSE)
+Data.ThreatDepVars$p5q1i<-car::recode(Data.ThreatDepVars$p5q1i, "c(7,8) = 0",  as.numeric = TRUE, as.factor =FALSE)
+Data.ThreatDepVars$p5q1h<-car::recode(Data.ThreatDepVars$p5q1h, "c(7,8) = 0",  as.numeric = TRUE, as.factor =FALSE)
+Data.ThreatDepVars$p5q1f<-car::recode(Data.ThreatDepVars$p5q1f, "c(7,8) = 0",  as.numeric = TRUE, as.factor =FALSE)
+Data.ThreatDepVars$p5q1j<-car::recode(Data.ThreatDepVars$p5q1j, "c(7,8) = 0",  as.numeric = TRUE, as.factor =FALSE)
+```
+###Calculating physical abuse, emotional abuse, and abuse scores
+```{r, eval=FALSE}
+Data.ThreatDepVars$Age3.PhysicalAbuse = Data.ThreatDepVars$IH3j7 + Data.ThreatDepVars$IH3j4 + Data.ThreatDepVars$IH3j11 + Data.ThreatDepVars$IH3j13 + Data.ThreatDepVars$IH3j3
+Data.ThreatDepVars$Age3.EmotionalAbuse =Data.ThreatDepVars$IH3j14 + Data.ThreatDepVars$IH3j9 + Data.ThreatDepVars$IH3j8 + Data.ThreatDepVars$IH3j6 + Data.ThreatDepVars$IH3j10
+Data.ThreatDepVars$Age3.Abuse = Data.ThreatDepVars$Age3.PhysicalAbuse + Data.ThreatDepVars$Age3.EmotionalAbuse
+Data.ThreatDepVars$Age5.PhysicalAbuse = Data.ThreatDepVars$IH5g7 + Data.ThreatDepVars$IH5g4 + Data.ThreatDepVars$IH5g11 + Data.ThreatDepVars$IH5g13 + Data.ThreatDepVars$IH5g3
+Data.ThreatDepVars$Age5.EmotionalAbuse = Data.ThreatDepVars$IH5g14 + Data.ThreatDepVars$IH5g9 + Data.ThreatDepVars$IH5g8 + Data.ThreatDepVars$IH5g6 + Data.ThreatDepVars$IH5g10
+Data.ThreatDepVars$Age5.Abuse = Data.ThreatDepVars$Age5.PhysicalAbuse + Data.ThreatDepVars$Age5.EmotionalAbuse
+Data.ThreatDepVars$Age9.PhysicalAbuse = Data.ThreatDepVars$p5q1g + Data.ThreatDepVars$p5q1d + Data.ThreatDepVars$p5q1k + Data.ThreatDepVars$p5q1m + Data.ThreatDepVars$p5q1c
+Data.ThreatDepVars$Age9.EmotionalAbuse = Data.ThreatDepVars$p5q1n + Data.ThreatDepVars$p5q1i + Data.ThreatDepVars$p5q1h + Data.ThreatDepVars$p5q1f + Data.ThreatDepVars$p5q1j
+Data.ThreatDepVars$Age9.Abuse = Data.ThreatDepVars$Age9.PhysicalAbuse + Data.ThreatDepVars$Age9.EmotionalAbuse
+```
+
+### Internal Reliability
+
+I have this in here because I've been asked previously about how the items relate to each other and about their alpha scores. 
+```{r, eval=FALSE}
+# Age 3 Abuse
+Data.ThreatDepVars %>% 
+  dplyr::select("IH3j7", "IH3j4", "IH3j11", "IH3j13", "IH3j3", "IH3j14", "IH3j9", "IH3j8", "IH3j6", "IH3j10") %>% 
+  psych::alpha(.)
+
+# Age 5 Abuse
+
+Data.ThreatDepVars %>%
+  dplyr::select("IH5g7", "IH5g4", "IH5g11", "IH5g13", "IH5g3", "IH5g14", "IH5g9", "IH5g8", "IH5g6", "IH5g10") %>% 
+  psych::alpha(.)
+
+# Age 9 Abuse
+
+Data.ThreatDepVars %>% 
+  dplyr::select("p5q1g", "p5q1d", "p5q1k", "p5q1m", "p5q1c", "p5q1n", "p5q1i", "p5q1h", "p5q1f", "p5q1j") %>% 
+  psych::alpha(.)
+
+```
+
+
+##IPV
+###Item selection based on Hunt, Slack, & Berger 2016
+###Recode items - 3 (never) becomes 0, 2 becomes 1, 1 becomes 2 - this matches abuse, neglect, and CV where 0 = never
+```{r, eval=FALSE}
+
+Data.ThreatDepVars$m3d7h<-car::recode(Data.ThreatDepVars$m3d7h, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m3d7i<-car::recode(Data.ThreatDepVars$m3d7i, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m3d7e<-car::recode(Data.ThreatDepVars$m3d7e, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m3d7f<-car::recode(Data.ThreatDepVars$m3d7f, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m3d7g<-car::recode(Data.ThreatDepVars$m3d7g, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m3d7j<-car::recode(Data.ThreatDepVars$m3d7j, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m4d7h<-car::recode(Data.ThreatDepVars$m4d7h, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m4d7i<-car::recode(Data.ThreatDepVars$m4d7i, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m4d7e<-car::recode(Data.ThreatDepVars$m4d7e, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m4d7f<-car::recode(Data.ThreatDepVars$m4d7f, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m4d7g<-car::recode(Data.ThreatDepVars$m4d7g, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m4d7j<-car::recode(Data.ThreatDepVars$m4d7j, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m5c6h<-car::recode(Data.ThreatDepVars$m5c6h, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m5c6i<-car::recode(Data.ThreatDepVars$m5c6i, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m5c6e<-car::recode(Data.ThreatDepVars$m5c6e, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m5c6f<-car::recode(Data.ThreatDepVars$m5c6f, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m5c6g<-car::recode(Data.ThreatDepVars$m5c6g, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m5c6j<-car::recode(Data.ThreatDepVars$m5c6j, "3 = 0 ; 2 = 1 ; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m3e23h<-car::recode(Data.ThreatDepVars$m3e23h, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m3e23i<-car::recode(Data.ThreatDepVars$m3e23i, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m3e23e<-car::recode(Data.ThreatDepVars$m3e23e, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m3e23f<-car::recode(Data.ThreatDepVars$m3e23f, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m3e23g<-car::recode(Data.ThreatDepVars$m3e23g, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m3e23j<-car::recode(Data.ThreatDepVars$m3e23j, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m4e23h<-car::recode(Data.ThreatDepVars$m4e23h, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m4e23i<-car::recode(Data.ThreatDepVars$m4e23i, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m4e23e<-car::recode(Data.ThreatDepVars$m4e23e, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m4e23f<-car::recode(Data.ThreatDepVars$m4e23f, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m4e23g<-car::recode(Data.ThreatDepVars$m4e23g, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m4e23j<-car::recode(Data.ThreatDepVars$m4e23j, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m5d20h<-car::recode(Data.ThreatDepVars$m5d20h, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m5d20i<-car::recode(Data.ThreatDepVars$m5d20i, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m5d20e<-car::recode(Data.ThreatDepVars$m5d20e, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m5d20f<-car::recode(Data.ThreatDepVars$m5d20f, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m5d20g<-car::recode(Data.ThreatDepVars$m5d20g, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE) 
+Data.ThreatDepVars$m5d20j<-car::recode(Data.ThreatDepVars$m5d20j, "3 = 0; 2 = 1; 1 = 2", as.numeric = TRUE)
+
+```
+###Calculating physical, emotional, sexual, and total IPV for baby's father, current partner 
+```{r, eval=FALSE}
+Data.ThreatDepVars$BF.IPV.3.Physical = Data.ThreatDepVars$m3d7h + Data.ThreatDepVars$m3d7i
+Data.ThreatDepVars$BF.IPV.3.Emotional = Data.ThreatDepVars$m3d7e + Data.ThreatDepVars$m3d7f + Data.ThreatDepVars$m3d7g
+Data.ThreatDepVars$BF.IPV.3.Sexual = Data.ThreatDepVars$m3d7j
+Data.ThreatDepVars$BF.IPV.3.Total = Data.ThreatDepVars$BF.IPV.3.Physical + Data.ThreatDepVars$BF.IPV.3.Emotional + Data.ThreatDepVars$BF.IPV.3.Sexual
+Data.ThreatDepVars$BF.IPV.5.Physical = Data.ThreatDepVars$m4d7h + Data.ThreatDepVars$m4d7i
+Data.ThreatDepVars$BF.IPV.5.Emotional = Data.ThreatDepVars$m4d7e + Data.ThreatDepVars$m4d7f + Data.ThreatDepVars$m4d7g
+Data.ThreatDepVars$BF.IPV.5.Sexual = Data.ThreatDepVars$m4d7j
+Data.ThreatDepVars$BF.IPV.5.Total = Data.ThreatDepVars$BF.IPV.5.Physical + Data.ThreatDepVars$BF.IPV.5.Emotional + Data.ThreatDepVars$BF.IPV.5.Sexual
+Data.ThreatDepVars$BF.IPV.9.Physical = Data.ThreatDepVars$m5c6h + Data.ThreatDepVars$m5c6i
+Data.ThreatDepVars$BF.IPV.9.Emotional = Data.ThreatDepVars$m5c6e + Data.ThreatDepVars$m5c6f + Data.ThreatDepVars$m5c6g
+Data.ThreatDepVars$BF.IPV.9.Sexual = Data.ThreatDepVars$m5c6j
+Data.ThreatDepVars$BF.IPV.9.Total = Data.ThreatDepVars$BF.IPV.9.Physical + Data.ThreatDepVars$BF.IPV.9.Emotional + Data.ThreatDepVars$BF.IPV.9.Sexual
+Data.ThreatDepVars$CP.IPV.3.Physical = Data.ThreatDepVars$m3e23h + Data.ThreatDepVars$m3e23i
+Data.ThreatDepVars$CP.IPV.3.Emotional = Data.ThreatDepVars$m3e23e + Data.ThreatDepVars$m3e23f + Data.ThreatDepVars$m3e23g
+Data.ThreatDepVars$CP.IPV.3.Sexual = Data.ThreatDepVars$m3e23j
+Data.ThreatDepVars$CP.IPV.3.Total = Data.ThreatDepVars$CP.IPV.3.Physical + Data.ThreatDepVars$CP.IPV.3.Emotional + Data.ThreatDepVars$CP.IPV.3.Sexual
+Data.ThreatDepVars$CP.IPV.5.Physical = Data.ThreatDepVars$m4e23h + Data.ThreatDepVars$m4e23i
+Data.ThreatDepVars$CP.IPV.5.Emotional = Data.ThreatDepVars$m4e23e + Data.ThreatDepVars$m4e23f + Data.ThreatDepVars$m4e23g
+Data.ThreatDepVars$CP.IPV.5.Sexual = Data.ThreatDepVars$m4e23j
+Data.ThreatDepVars$CP.IPV.5.Total = Data.ThreatDepVars$CP.IPV.5.Physical + Data.ThreatDepVars$CP.IPV.5.Emotional + Data.ThreatDepVars$CP.IPV.5.Sexual
+Data.ThreatDepVars$CP.IPV.9.Physical = Data.ThreatDepVars$m5d20h + Data.ThreatDepVars$m5d20i
+Data.ThreatDepVars$CP.IPV.9.Emotional = Data.ThreatDepVars$m5d20e + Data.ThreatDepVars$m5d20f + Data.ThreatDepVars$m5d20g
+Data.ThreatDepVars$CP.IPV.9.Sexual = Data.ThreatDepVars$m5d20j
+Data.ThreatDepVars$CP.IPV.9.Total = Data.ThreatDepVars$CP.IPV.9.Physical + Data.ThreatDepVars$CP.IPV.9.Emotional + Data.ThreatDepVars$CP.IPV.9.Sexual
+```
+###Merge baby's father, current partner columns 
+```{r, eval=FALSE}
+Data.ThreatDepVars$IPV.3.Physical = Data.ThreatDepVars$BF.IPV.3.Physical
+Data.ThreatDepVars$IPV.3.Physical[!is.na(Data.ThreatDepVars$CP.IPV.3.Physical)] = Data.ThreatDepVars$CP.IPV.3.Physical[!is.na(Data.ThreatDepVars$CP.IPV.3.Physical)]
+Data.ThreatDepVars$IPV.3.Emotional = Data.ThreatDepVars$BF.IPV.3.Emotional
+Data.ThreatDepVars$IPV.3.Emotional[!is.na(Data.ThreatDepVars$CP.IPV.3.Emotional)] = Data.ThreatDepVars$CP.IPV.3.Emotional[!is.na(Data.ThreatDepVars$CP.IPV.3.Emotional)]
+Data.ThreatDepVars$IPV.3.Sexual = Data.ThreatDepVars$BF.IPV.3.Sexual
+Data.ThreatDepVars$IPV.3.Sexual[!is.na(Data.ThreatDepVars$CP.IPV.3.Sexual)] = Data.ThreatDepVars$CP.IPV.3.Sexual[!is.na(Data.ThreatDepVars$CP.IPV.3.Sexual)]
+Data.ThreatDepVars$IPV.3.Total = Data.ThreatDepVars$BF.IPV.3.Total
+Data.ThreatDepVars$IPV.3.Total[!is.na(Data.ThreatDepVars$CP.IPV.3.Total)] = Data.ThreatDepVars$CP.IPV.3.Total[!is.na(Data.ThreatDepVars$CP.IPV.3.Total)]
+Data.ThreatDepVars$IPV.5.Physical = Data.ThreatDepVars$BF.IPV.5.Physical
+Data.ThreatDepVars$IPV.5.Physical[!is.na(Data.ThreatDepVars$CP.IPV.5.Physical)] = Data.ThreatDepVars$CP.IPV.5.Physical[!is.na(Data.ThreatDepVars$CP.IPV.5.Physical)]
+Data.ThreatDepVars$IPV.5.Emotional = Data.ThreatDepVars$BF.IPV.5.Emotional
+Data.ThreatDepVars$IPV.5.Emotional[!is.na(Data.ThreatDepVars$CP.IPV.5.Emotional)] = Data.ThreatDepVars$CP.IPV.5.Emotional[!is.na(Data.ThreatDepVars$CP.IPV.5.Emotional)]
+Data.ThreatDepVars$IPV.5.Sexual = Data.ThreatDepVars$BF.IPV.5.Sexual
+Data.ThreatDepVars$IPV.5.Sexual[!is.na(Data.ThreatDepVars$CP.IPV.5.Sexual)] = Data.ThreatDepVars$CP.IPV.5.Sexual[!is.na(Data.ThreatDepVars$CP.IPV.5.Sexual)]
+Data.ThreatDepVars$IPV.5.Total = Data.ThreatDepVars$BF.IPV.5.Total
+Data.ThreatDepVars$IPV.5.Total[!is.na(Data.ThreatDepVars$CP.IPV.5.Total)] = Data.ThreatDepVars$CP.IPV.5.Total[!is.na(Data.ThreatDepVars$CP.IPV.5.Total)]
+Data.ThreatDepVars$IPV.9.Physical = Data.ThreatDepVars$BF.IPV.9.Physical
+Data.ThreatDepVars$IPV.9.Physical[!is.na(Data.ThreatDepVars$CP.IPV.9.Physical)] = Data.ThreatDepVars$CP.IPV.9.Physical[!is.na(Data.ThreatDepVars$CP.IPV.9.Physical)]
+Data.ThreatDepVars$IPV.9.Emotional = Data.ThreatDepVars$BF.IPV.9.Emotional
+Data.ThreatDepVars$IPV.9.Emotional[!is.na(Data.ThreatDepVars$CP.IPV.9.Emotional)] = Data.ThreatDepVars$CP.IPV.9.Emotional[!is.na(Data.ThreatDepVars$CP.IPV.9.Emotional)]
+Data.ThreatDepVars$IPV.9.Sexual = Data.ThreatDepVars$BF.IPV.9.Sexual
+Data.ThreatDepVars$IPV.9.Sexual[!is.na(Data.ThreatDepVars$CP.IPV.9.Sexual)] = Data.ThreatDepVars$CP.IPV.9.Sexual[!is.na(Data.ThreatDepVars$CP.IPV.9.Sexual)]
+Data.ThreatDepVars$IPV.9.Total = Data.ThreatDepVars$BF.IPV.9.Total
+Data.ThreatDepVars$IPV.9.Total[!is.na(Data.ThreatDepVars$CP.IPV.9.Total)] = Data.ThreatDepVars$CP.IPV.9.Total[!is.na(Data.ThreatDepVars$CP.IPV.9.Total)]
+```
+##Community Violence 
+###Item selection based on Zhang & Anderson 2010 but note they only did age 3 and age 9 does not have victimization items
+###Calculate sum scores for community violence witnessing and victimization
+###Going to create a sum of what is available at each age to maximize threat index for use with the composite score 
+```{r, eval=FALSE}
+Data.ThreatDepVars$CV.Age3.Witness.KillIncluded = Data.ThreatDepVars$IH3l1 + Data.ThreatDepVars$IH3l3 + Data.ThreatDepVars$IH3l5 + Data.ThreatDepVars$IH3l7
+Data.ThreatDepVars$CV.Age3.Witness = Data.ThreatDepVars$IH3l1 + Data.ThreatDepVars$IH3l3 + Data.ThreatDepVars$IH3l5
+Data.ThreatDepVars$CV.Age5.Witness.KillIncluded = Data.ThreatDepVars$IH5h1 + Data.ThreatDepVars$IH5h3 + Data.ThreatDepVars$IH5h5 + Data.ThreatDepVars$IH5h7
+Data.ThreatDepVars$CV.Age5.Witness = Data.ThreatDepVars$IH5h1 + Data.ThreatDepVars$IH5h3 + Data.ThreatDepVars$IH5h5 
+Data.ThreatDepVars$CV.Age9.Witness = Data.ThreatDepVars$p5m5a + Data.ThreatDepVars$p5m5b + Data.ThreatDepVars$p5m5c
+Data.ThreatDepVars$CV.Age3.Victim = Data.ThreatDepVars$IH3l2 + Data.ThreatDepVars$IH3l4 + Data.ThreatDepVars$IH3l6
+Data.ThreatDepVars$CV.Age5.Victim = Data.ThreatDepVars$IH5h2 + Data.ThreatDepVars$IH5h4 + Data.ThreatDepVars$IH5h6
+Data.ThreatDepVars$Age3.CV = Data.ThreatDepVars$CV.Age3.Witness.KillIncluded + Data.ThreatDepVars$CV.Age3.Victim
+Data.ThreatDepVars$Age5.CV = Data.ThreatDepVars$CV.Age5.Witness.KillIncluded + Data.ThreatDepVars$CV.Age5.Victim
+Data.ThreatDepVars$Age9.CV = Data.ThreatDepVars$CV.Age9.Witness
+```
+##Neglect 
+###Item selection based on Hunt, Slack, & Berger 2016
+###Convert home visit neglect items with 7 (yes but not in last year) and 8 (this has never happened) to 0 
+```{r, eval=FALSE}
+
+Data.ThreatDepVars$IH3j15<-car::recode(Data.ThreatDepVars$IH3j15 , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$IH3j16<-car::recode(Data.ThreatDepVars$IH3j16 , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$IH3j17<-car::recode(Data.ThreatDepVars$IH3j17 , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$IH3j18<-car::recode(Data.ThreatDepVars$IH3j18 , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$IH3j19<-car::recode(Data.ThreatDepVars$IH3j19 , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$IH5g15<-car::recode(Data.ThreatDepVars$IH5g15 , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$IH5g16<-car::recode(Data.ThreatDepVars$IH5g16 , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$IH5g17<-car::recode(Data.ThreatDepVars$IH5g17 , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$IH5g18<-car::recode(Data.ThreatDepVars$IH5g18 , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$IH5g19<-car::recode(Data.ThreatDepVars$IH5g19 , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$p5q2a<-car::recode(Data.ThreatDepVars$p5q2a , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$p5q2b<-car::recode(Data.ThreatDepVars$p5q2b , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$p5q2c<-car::recode(Data.ThreatDepVars$p5q2c , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$p5q2d<-car::recode(Data.ThreatDepVars$p5q2d , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+Data.ThreatDepVars$p5q2e<-car::recode(Data.ThreatDepVars$p5q2e , "c(7,8) = 0", as.numeric = TRUE, as.factor = FALSE)
+```
+###Calculating physical neglect, emotional neglect, and neglect subscales 
+```{r, eval=FALSE}
+Data.ThreatDepVars$Age3.PhysicalNeglect = Data.ThreatDepVars$IH3j15 + Data.ThreatDepVars$IH3j17 + Data.ThreatDepVars$IH3j18 + Data.ThreatDepVars$IH3j19
+Data.ThreatDepVars$Age3.EmotionalNeglect =  Data.ThreatDepVars$IH3j16
+Data.ThreatDepVars$Age3.Neglect = Data.ThreatDepVars$Age3.PhysicalNeglect + Data.ThreatDepVars$Age3.EmotionalNeglect
+Data.ThreatDepVars$Age5.PhysicalNeglect = Data.ThreatDepVars$IH5g15 + Data.ThreatDepVars$IH5g17 + Data.ThreatDepVars$IH5g18 + Data.ThreatDepVars$IH5g19
+Data.ThreatDepVars$Age5.EmotionalNeglect = Data.ThreatDepVars$IH5g16
+Data.ThreatDepVars$Age5.Neglect = Data.ThreatDepVars$Age5.PhysicalNeglect + Data.ThreatDepVars$Age5.EmotionalNeglect
+Data.ThreatDepVars$Age9.PhysicalNeglect = Data.ThreatDepVars$p5q2a + Data.ThreatDepVars$p5q2c + Data.ThreatDepVars$p5q2d + Data.ThreatDepVars$p5q2e
+Data.ThreatDepVars$Age9.EmotionalNeglect = Data.ThreatDepVars$p5q2b
+Data.ThreatDepVars$Age9.Neglect = Data.ThreatDepVars$Age9.PhysicalNeglect + Data.ThreatDepVars$Age9.EmotionalNeglect
+```
+##Neighborhood Collective Efficacy - we're only focusing on social cohesion 
+###Item selection based on Donnelly et al., 2016
+###Reverse code items worded in the opposite direction such that higher scores indicate less collective efficacy
+```{r, eval=FALSE}
+Data.ThreatDepVars$IH3k2dr = (6 - Data.ThreatDepVars$IH3k2d)
+Data.ThreatDepVars$IH3k2er = (6 - Data.ThreatDepVars$IH3k2e)
+Data.ThreatDepVars$m4i0n3r = (5 - Data.ThreatDepVars$m4i0n3)
+Data.ThreatDepVars$m4i0n4r = (5 - Data.ThreatDepVars$m4i0n4)
+Data.ThreatDepVars$p5m3cr = (5 - Data.ThreatDepVars$p5m3c)
+Data.ThreatDepVars$p5m3dr = (5 - Data.ThreatDepVars$p5m3d)
+```
+###Calculating social cohesion 
+```{r, eval=FALSE}
+Data.ThreatDepVars$Age3.SocialCohesion = Data.ThreatDepVars$IH3k2a + Data.ThreatDepVars$IH3k2b + Data.ThreatDepVars$IH3k2dr + Data.ThreatDepVars$IH3k2er
+Data.ThreatDepVars$Age5.SocialCohesion = Data.ThreatDepVars$m4i0n1 + Data.ThreatDepVars$m4i0n2 + Data.ThreatDepVars$m4i0n3r + Data.ThreatDepVars$m4i0n4r
+Data.ThreatDepVars$Age9.SocialCohesion = Data.ThreatDepVars$p5m3a + Data.ThreatDepVars$p5m3b + Data.ThreatDepVars$p5m3cr + Data.ThreatDepVars$p5m3dr
+```
+##Partner support 
+###Item selection based on Manuel, Bledsoe, and Bellamy 2012
+###Reverse coded 1 item in opposite direction so that higher score indicates less partner support
+```{r, eval=FALSE}
+Data.ThreatDepVars$m3d7cr = (4 - Data.ThreatDepVars$m3d7c)
+Data.ThreatDepVars$m3e23cr = (4 - Data.ThreatDepVars$m3e23c)
+Data.ThreatDepVars$m4d7cr = (4 - Data.ThreatDepVars$m4d7c)
+Data.ThreatDepVars$m4e23cr = (4 - Data.ThreatDepVars$m4e23c)
+Data.ThreatDepVars$m5c6cr = (4 - Data.ThreatDepVars$m5c6c)
+Data.ThreatDepVars$m5d20cr = (4 - Data.ThreatDepVars$m5d20c)
+```
+###Calculating partner support for baby's father and current partner
+```{r, eval=FALSE}
+Data.ThreatDepVars$Age3.BF.PartSupp = Data.ThreatDepVars$m3d7a + Data.ThreatDepVars$m3d7b + Data.ThreatDepVars$m3d7cr + Data.ThreatDepVars$m3d7d + Data.ThreatDepVars$m3d7k + Data.ThreatDepVars$m3d7l
+Data.ThreatDepVars$Age3.CP.PartSupp = Data.ThreatDepVars$m3e23a + Data.ThreatDepVars$m3e23b + Data.ThreatDepVars$m3e23cr + Data.ThreatDepVars$m3e23d + Data.ThreatDepVars$m3e23k + Data.ThreatDepVars$m3e23l
+Data.ThreatDepVars$Age5.BF.PartSupp = Data.ThreatDepVars$m4d7a + Data.ThreatDepVars$m4d7b + Data.ThreatDepVars$m4d7cr + Data.ThreatDepVars$m4d7d + Data.ThreatDepVars$m4d7o + Data.ThreatDepVars$m4d7p
+Data.ThreatDepVars$Age5.CP.PartSupp = Data.ThreatDepVars$m4e23a + Data.ThreatDepVars$m4e23b + Data.ThreatDepVars$m4e23cr + Data.ThreatDepVars$m4e23d + Data.ThreatDepVars$m4e23o + Data.ThreatDepVars$m4e23p
+Data.ThreatDepVars$Age9.BF.PartSupp = Data.ThreatDepVars$m5c6a + Data.ThreatDepVars$m5c6b + Data.ThreatDepVars$m5c6cr + Data.ThreatDepVars$m5c6d + Data.ThreatDepVars$m5c6o + Data.ThreatDepVars$m5c6p
+Data.ThreatDepVars$Age9.CP.PartSupp = Data.ThreatDepVars$m5d20a + Data.ThreatDepVars$m5d20b + Data.ThreatDepVars$m5d20cr + Data.ThreatDepVars$m5d20d + Data.ThreatDepVars$m5d20o + Data.ThreatDepVars$m5d20p
+```
+###Merge baby's father, current partner columns 
+```{r, eval=FALSE}
+Data.ThreatDepVars$Age3.PartSupp = Data.ThreatDepVars$Age3.BF.PartSupp
+Data.ThreatDepVars$Age3.PartSupp[!is.na(Data.ThreatDepVars$Age3.CP.PartSupp)] = Data.ThreatDepVars$Age3.CP.PartSupp[!is.na(Data.ThreatDepVars$Age3.CP.PartSupp)]
+Data.ThreatDepVars$Age5.PartSupp = Data.ThreatDepVars$Age5.BF.PartSupp
+Data.ThreatDepVars$Age5.PartSupp[!is.na(Data.ThreatDepVars$Age5.CP.PartSupp)] = Data.ThreatDepVars$Age5.CP.PartSupp[!is.na(Data.ThreatDepVars$Age5.CP.PartSupp)]
+Data.ThreatDepVars$Age9.PartSupp = Data.ThreatDepVars$Age9.BF.PartSupp
+Data.ThreatDepVars$Age9.PartSupp[!is.na(Data.ThreatDepVars$Age9.CP.PartSupp)] = Data.ThreatDepVars$Age9.CP.PartSupp[!is.na(Data.ThreatDepVars$Age9.CP.PartSupp)]
+```
+##Recoding IPV data for participants who did not live with mom at least half the time as NA after email with Chris on 11.09.17
+```{r, eval=FALSE}
+Data.ThreatDepVars$IPV.3.Total <- ifelse(Data.ThreatDepVars$age3cust == 0, NA, Data.ThreatDepVars$IPV.3.Total)
+Data.ThreatDepVars$IPV.5.Total <- ifelse(Data.ThreatDepVars$age5cust == 0, NA, Data.ThreatDepVars$IPV.5.Total)
+Data.ThreatDepVars$IPV.9.Total <- ifelse(Data.ThreatDepVars$age9cust == 0, NA, Data.ThreatDepVars$IPV.9.Total)
+```
+##Recoding partner support for participants who did not live with mom at least half the time as NA 
+```{r, eval=FALSE}
+Data.ThreatDepVars$Age3.PartSupp <- ifelse(Data.ThreatDepVars$age3cust == 0, NA, Data.ThreatDepVars$Age3.PartSupp)
+Data.ThreatDepVars$Age5.PartSupp <- ifelse(Data.ThreatDepVars$age5cust == 0, NA, Data.ThreatDepVars$Age5.PartSupp)
+Data.ThreatDepVars$Age9.PartSupp <- ifelse(Data.ThreatDepVars$age9cust == 0, NA, Data.ThreatDepVars$Age9.PartSupp)
+```
+
+
+##Creating composite measures of threat and deprivation across ages 3, 5, and 9
+###Calculating Z scores 
+```{r, eval=FALSE}
+Data.ThreatDepVars$Age3.AbuseZ <- scale(Data.ThreatDepVars$Age3.Abuse, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$Age5.AbuseZ <- scale(Data.ThreatDepVars$Age5.Abuse, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$Age9.AbuseZ <- scale(Data.ThreatDepVars$Age9.Abuse, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$IPV.3.TotalZ <- scale(Data.ThreatDepVars$IPV.3.Total, center = TRUE, scale = TRUE) 
+Data.ThreatDepVars$IPV.5.TotalZ <- scale(Data.ThreatDepVars$IPV.5.Total, center = TRUE, scale = TRUE) 
+Data.ThreatDepVars$IPV.9.TotalZ <- scale(Data.ThreatDepVars$IPV.9.Total, center = TRUE, scale = TRUE) 
+Data.ThreatDepVars$Age3.CVZ <- scale(Data.ThreatDepVars$Age3.CV, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$Age5.CVZ <- scale(Data.ThreatDepVars$Age5.CV, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$Age9.CVZ <- scale(Data.ThreatDepVars$Age9.CV, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$Age3.NeglectZ <- scale(Data.ThreatDepVars$Age3.Neglect, center = TRUE, scale = TRUE) 
+Data.ThreatDepVars$Age5.NeglectZ <- scale(Data.ThreatDepVars$Age5.Neglect, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$Age9.NeglectZ <- scale(Data.ThreatDepVars$Age9.Neglect, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$Age3.SocialCohesionZ <- scale(Data.ThreatDepVars$Age3.SocialCohesion, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$Age5.SocialCohesionZ <- scale(Data.ThreatDepVars$Age5.SocialCohesion, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$Age9.SocialCohesionZ <- scale(Data.ThreatDepVars$Age9.SocialCohesion, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$Age3.PartSuppZ <- scale(Data.ThreatDepVars$Age3.PartSupp, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$Age5.PartSuppZ <- scale(Data.ThreatDepVars$Age5.PartSupp, center = TRUE, scale = TRUE)
+Data.ThreatDepVars$Age9.PartSuppZ <- scale(Data.ThreatDepVars$Age9.PartSupp, center = TRUE, scale = TRUE)
+```
+###Creating an indicator of how many exposures each participant has data for
+```{r, eval=FALSE}
+Data.ThreatDepVars$Age3.Abuse.Incl = ifelse(is.na(Data.ThreatDepVars$Age3.Abuse), "0", "1")
+Data.ThreatDepVars$Age3.Abuse.Incl <- as.numeric(Data.ThreatDepVars$Age3.Abuse.Incl)
+Data.ThreatDepVars$Age5.Abuse.Incl = ifelse(is.na(Data.ThreatDepVars$Age5.Abuse), "0", "1")
+Data.ThreatDepVars$Age5.Abuse.Incl <- as.numeric(Data.ThreatDepVars$Age5.Abuse.Incl)
+Data.ThreatDepVars$Age9.Abuse.Incl = ifelse(is.na(Data.ThreatDepVars$Age9.Abuse), "0", "1")
+Data.ThreatDepVars$Age9.Abuse.Incl <- as.numeric(Data.ThreatDepVars$Age9.Abuse.Incl)
+Data.ThreatDepVars$Age3.IPV.Incl = ifelse(is.na(Data.ThreatDepVars$IPV.3.Total), "0", "1")
+Data.ThreatDepVars$Age3.IPV.Incl <- as.numeric(Data.ThreatDepVars$Age3.IPV.Incl)
+Data.ThreatDepVars$Age5.IPV.Incl = ifelse(is.na(Data.ThreatDepVars$IPV.5.Total), "0", "1")
+Data.ThreatDepVars$Age5.IPV.Incl <- as.numeric(Data.ThreatDepVars$Age5.IPV.Incl)
+Data.ThreatDepVars$Age9.IPV.Incl = ifelse(is.na(Data.ThreatDepVars$IPV.9.Total), "0", "1")
+Data.ThreatDepVars$Age9.IPV.Incl <- as.numeric(Data.ThreatDepVars$Age9.IPV.Incl)
+Data.ThreatDepVars$Age3.CV.Incl = ifelse(is.na(Data.ThreatDepVars$Age3.CV), "0", "1")
+Data.ThreatDepVars$Age3.CV.Incl <- as.numeric(Data.ThreatDepVars$Age3.CV.Incl)
+Data.ThreatDepVars$Age5.CV.Incl = ifelse(is.na(Data.ThreatDepVars$Age5.CV), "0", "1")
+Data.ThreatDepVars$Age5.CV.Incl <- as.numeric(Data.ThreatDepVars$Age5.CV.Incl)
+Data.ThreatDepVars$Age9.CV.Incl = ifelse(is.na(Data.ThreatDepVars$Age9.CV), "0", "1")
+Data.ThreatDepVars$Age9.CV.Incl <- as.numeric(Data.ThreatDepVars$Age9.CV.Incl)
+Data.ThreatDepVars$Age3.Neglect.Incl = ifelse(is.na(Data.ThreatDepVars$Age3.Neglect), "0", "1")
+Data.ThreatDepVars$Age3.Neglect.Incl <- as.numeric(Data.ThreatDepVars$Age3.Neglect.Incl)
+Data.ThreatDepVars$Age5.Neglect.Incl = ifelse(is.na(Data.ThreatDepVars$Age5.Neglect), "0", "1")
+Data.ThreatDepVars$Age5.Neglect.Incl <- as.numeric(Data.ThreatDepVars$Age5.Neglect.Incl)
+Data.ThreatDepVars$Age9.Neglect.Incl = ifelse(is.na(Data.ThreatDepVars$Age9.Neglect), "0", "1")
+Data.ThreatDepVars$Age9.Neglect.Incl <- as.numeric(Data.ThreatDepVars$Age9.Neglect.Incl)
+Data.ThreatDepVars$Age3.SocialCohesion.Incl = ifelse(is.na(Data.ThreatDepVars$Age3.SocialCohesion), "0", "1")
+Data.ThreatDepVars$Age3.SocialCohesion.Incl <- as.numeric(Data.ThreatDepVars$Age3.SocialCohesion.Incl)
+Data.ThreatDepVars$Age5.SocialCohesion.Incl = ifelse(is.na(Data.ThreatDepVars$Age5.SocialCohesion), "0", "1")
+Data.ThreatDepVars$Age5.SocialCohesion.Incl <- as.numeric(Data.ThreatDepVars$Age5.SocialCohesion.Incl)
+Data.ThreatDepVars$Age9.SocialCohesion.Incl = ifelse(is.na(Data.ThreatDepVars$Age9.SocialCohesion), "0", "1")
+Data.ThreatDepVars$Age9.SocialCohesion.Incl <- as.numeric(Data.ThreatDepVars$Age9.SocialCohesion.Incl)
+Data.ThreatDepVars$Age3.PartSupp.Incl = ifelse(is.na(Data.ThreatDepVars$Age3.PartSupp), "0", "1")
+Data.ThreatDepVars$Age3.PartSupp.Incl <- as.numeric(Data.ThreatDepVars$Age3.PartSupp.Incl)
+Data.ThreatDepVars$Age5.PartSupp.Incl = ifelse(is.na(Data.ThreatDepVars$Age5.PartSupp), "0", "1")
+Data.ThreatDepVars$Age5.PartSupp.Incl <- as.numeric(Data.ThreatDepVars$Age5.PartSupp.Incl)
+Data.ThreatDepVars$Age9.PartSupp.Incl = ifelse(is.na(Data.ThreatDepVars$Age9.PartSupp), "0", "1")
+Data.ThreatDepVars$Age9.PartSupp.Incl <- as.numeric(Data.ThreatDepVars$Age9.PartSupp.Incl)
+
+Data.ThreatDepVars$Threat.Incl = Data.ThreatDepVars$Age3.Abuse.Incl + Data.ThreatDepVars$Age5.Abuse.Incl + Data.ThreatDepVars$Age9.Abuse.Incl + Data.ThreatDepVars$Age3.IPV.Incl + Data.ThreatDepVars$Age5.IPV.Incl + Data.ThreatDepVars$Age9.IPV.Incl + Data.ThreatDepVars$Age3.CV.Incl + Data.ThreatDepVars$Age5.CV.Incl +  Data.ThreatDepVars$Age9.CV.Incl
+Data.ThreatDepVars$Dep.Incl = Data.ThreatDepVars$Age3.Neglect.Incl + Data.ThreatDepVars$Age5.Neglect.Incl + Data.ThreatDepVars$Age9.Neglect.Incl + Data.ThreatDepVars$Age3.SocialCohesion.Incl + Data.ThreatDepVars$Age5.SocialCohesion.Incl + Data.ThreatDepVars$Age9.SocialCohesion.Incl + Data.ThreatDepVars$Age3.PartSupp.Incl + Data.ThreatDepVars$Age5.PartSupp.Incl + Data.ThreatDepVars$Age9.PartSupp.Incl
+```
+
+###Creating composite scores for threat and deprivation
+```{r, eval=FALSE}
+Data.ThreatDepVars$ThreatZSum <- rowSums(cbind(Data.ThreatDepVars$Age3.AbuseZ,Data.ThreatDepVars$Age5.AbuseZ,Data.ThreatDepVars$Age9.AbuseZ,Data.ThreatDepVars$IPV.3.TotalZ,Data.ThreatDepVars$IPV.5.TotalZ,Data.ThreatDepVars$IPV.9.TotalZ,Data.ThreatDepVars$Age3.CVZ,Data.ThreatDepVars$Age5.CVZ,Data.ThreatDepVars$Age9.CVZ), na.rm = TRUE)
+Data.ThreatDepVars$ThreatComp <- Data.ThreatDepVars$ThreatZSum/Data.ThreatDepVars$Threat.Incl
+Data.ThreatDepVars$DepZSum <-rowSums(cbind(Data.ThreatDepVars$Age3.NeglectZ,Data.ThreatDepVars$Age5.NeglectZ,Data.ThreatDepVars$Age9.NeglectZ,Data.ThreatDepVars$Age3.SocialCohesionZ,Data.ThreatDepVars$Age5.SocialCohesionZ,Data.ThreatDepVars$Age9.SocialCohesionZ,Data.ThreatDepVars$Age3.PartSuppZ,Data.ThreatDepVars$Age5.PartSuppZ,Data.ThreatDepVars$Age9.PartSuppZ), na.rm=TRUE)
+Data.ThreatDepVars$DepComp <- Data.ThreatDepVars$DepZSum/Data.ThreatDepVars$Dep.Incl
+```
+
+### Select only the Composites
+
+```{r, eval=FALSE}
+Data.ThreatDepVars = Data.ThreatDepVars %>% 
+  select("ff_id", "ThreatComp", "DepComp")
+```
+
+## Demographic Variable Prep
+```{r, eval=FALSE}
+# Race/Ethnicity at Age 15- ck6ethrace
+# 5	Multi-racial, non-hispanic
+# 4	Other only, non-hispanic
+# 3	Hispanic/Latino
+# 2	Black/Af. American only, non-hispanic
+# 1	White only, non-hispanic
+
+Demo_Variables = Demo_Variables %>% 
+  mutate(povco_avg = (cm1inpov + cm2povco + cm3povco + cm4povco + cm5povco + cp6povco)/6) %>% 
+  mutate(Race_AA = if_else(ck6ethrace == 2, 1, 0),
+         Race_C = if_else(ck6ethrace == 1, 1, 0),
+         Race_L = if_else(ck6ethrace == 3, 1, 0)) %>% 
+  mutate(cm1bsex = cm1bsex-1) %>% 
+  dplyr::select(ff_id, povco_avg, Race_AA, Race_C, Race_L,  cm1bsex)
+
+```
+
+## Merge to One Dataframe
+
+```{r, eval=FALSE}
+All_Variables = Data.ThreatDepVars %>% 
+  left_join(Data.AnxDep, by="ff_id")
+
+All_Variables = All_Variables %>% 
+  left_join(Extern_Variables, by="ff_id")
+
+All_Variables = All_Variables %>% 
+  left_join(Data.PAF, by = "ff_id")
+
+All_Variables = All_Variables %>% 
+  left_join(Data.SchoolConn, by = "ff_id")
+
+All_Variables = All_Variables %>% 
+  left_join(Demo_Variables, by = "ff_id")
+```
+
+
+## Write Variables to CSV
+
+```{r, eval=FALSE}
+write.csv(All_Variables,'/Volumes/csmonk/csmonk-lab/Data/Fragile_Families_Longitudinal/Leigh_FFCWS/VE_SD_IntExtPAF_SchoolConn_090420.csv')
+```
+
+# Write Variables for MPlus
+```{r, eval=FALSE}
+All_Variables[is.na(All_Variables)] = 99
+```
+
+```{r, eval=FALSE}
+prepareMplusData(All_Variables,'../../Manuscript/Data_Analysis/All_Variables_090420.dat')
+```
+## CBCL - Age 9
+
+V.M. suggested that we control for psychopathology at Age 9 since we have the data. We don't have a teen report of psychopathology at this age, but we do have parent report in the CBCL. To not make the SEM too complex, I am just feeding in sum scores representing internalizing and externalizing. 
+
+CBCL_AnxDep=p5q3m,p5q3ab,p5q3ac,p5q3ad,p5q3ae,p5q3af,p5q3ah,p5q3ar,p5q3av,p5q3ax,p5q3bq,p5q3ck,p5q3db
+
+CBCL_With=p5q3e,p5q3ao,p5q3bk,p5q3bo,p5q3bu,p5q3cu,p5q3cv,p5q3da
+
+CBCL_Som=p5q3as,p5q3au,p5q3aw,p5q3az,p5q3bb1,p5q3bb2,p5q3bb3,p5q3bb4,p5q3bb5,p5q3bb6,p5q3bb7
+
+CBCL_Rule=p5q3b,p5q3x,p5q3aa,p5q3al,p5q3ap,p5q3bi,p5q3bm,p5q3br,p5q3bs,p5q3bz,p5q3ca,p5q3cj,p5q3cp,p5q3cr,p5q3ct,p5q3cx,p5q3cy
+
+CBCL_Agg=p5q3c,p5q3o,p5q3r,p5q3s,p5q3t,p5q3u,p5q3v,p5q3aj,p5q3bc,p5q3bn,p5q3cf,p5q3cg,p5q3ch,p5q3ci,p5q3cn,p5q3co,p5q3cq,p5q3cw
+
+```{r, eval=FALSE}
+
+CBCL = CBCL %>% 
+  mutate(InternCBCL9 = p5q3m + p5q3ab + p5q3ac + p5q3ad + p5q3ae + p5q3af + p5q3ah + p5q3ar + p5q3av + p5q3ax + p5q3bq + p5q3ck + p5q3db + p5q3e + p5q3ao + p5q3bk + p5q3bo + p5q3bu + p5q3cu + p5q3cv + p5q3da + p5q3as + p5q3au + p5q3aw + p5q3az + p5q3bb1 + p5q3bb2 + p5q3bb3 + p5q3bb4 + p5q3bb5 + p5q3bb6 + p5q3bb7,
+         ExternCBCL9 = p5q3b + p5q3x + p5q3aa + p5q3al + p5q3ap + p5q3bi + p5q3bm + p5q3br + p5q3bs + p5q3bz + p5q3ca + p5q3cj + p5q3cp + p5q3cr + p5q3ct + p5q3cx + p5q3cy + p5q3c + p5q3o + p5q3r + p5q3s + p5q3t + p5q3u + p5q3v + p5q3aj + p5q3bc + p5q3bn + p5q3cf + p5q3cg + p5q3ch + p5q3ci + p5q3cn + p5q3co + p5q3cq + p5q3cw)
+
+```
+
+```{r, eval=FALSE}
+CBCL = CBCL %>% 
+  select(ff_id, InternCBCL9, ExternCBCL9)
+
+All_Variables = All_Variables %>% 
+  left_join(CBCL, by='ff_id')
+
+```
+
+## CBCL - Age 15
+```{r, eval=FALSE}
+
+CBCL_15 = CBCL_15 %>% 
+  mutate(Intern_CBCL15 = p6b36 + p6b40 + p6b52 + p6b53 + p6b54 + p6b68 + p6b65 + p6b66,
+         Extern_CBCL15 = p6b35 + p6b37 + p6b38 + p6b39 + p6b41 + p6b42 + p6b43 + p6b44 + p6b45 + p6b57 + p6b59 + p6b49 + p6b50 + p6b51 + p6b60 + p6b61 + p6b62 + p6b63 + p6b64 + p6b67) %>% 
+  dplyr::select(ff_id, Intern_CBCL15, Extern_CBCL15)
+
+All_Variables = All_Variables %>% 
+  left_join(CBCL_15, by='ff_id')
+
+```
+
+
+I wrote this out as a separate Mplus .dat
+```{r, eval=FALSE}
+All_Variables[is.na(All_Variables)] = 99
+```
+
+```{r, eval=FALSE}
+prepareMplusData(All_Variables,'../../Manuscript/Data_Analysis/All_Variables_101220_wCBCL.dat')
+prepareMplusData(All_Variables,'../../Manuscript/Data_Analysis/All_Variables_101320_wCBCL_forSC9Check.dat')
+```
+
+# Actual Analysis Starts Here - Read in Data 
+
+Here I am reading in data written out from the creation/recoding of variables above as well as the factor scores extracted from Mplus for the simple slopes analysis. Convention for how factor scores should be extracted when probing latent variable interactions has not been clearly established. Therefore, we used two different approaches and tested whether the method used influenced the interpretation of the interaction. The first method extracted the factor scores from a measurement model containing all of the latent variables in the model (e.g. school connectedness at age 9, school connectedness at age 15, and positive adolescent function). The second approach used the factor scores extracted from individual measurement models. Due to the correlations between latent variables that are accounted for in measurement models (Kline, 2015), it is likely that the extracted factors are different depending on how they are extracted. This is why there are two dataframes, All_Variables and All_Variables2.
+
+```{r}
+# OLD VERSION _ All_Variables = read_csv('/Volumes/csmonk/csmonk-lab/Data/Fragile_Families_Longitudinal/Leigh_FFCWS/VE_SD_IntExtPAF_SchoolConn_090420.csv')
+All_Variables = read_csv('VE_SD_IntExtPAF_SchoolConn_CBCL915_101220.csv')
+fs_scores = read_csv('FactorScores_SC159PAF_090320.csv')
+fs_scores$ff_id = as.integer(fs_scores$ff_id)
+
+fs_scores_ext9mod = read_csv('SC_IntExt_15_9_102820.csv')
+fs_scores_ext9mod$ff_id = as.integer(fs_scores_ext9mod$ff_id)
+
+SC9 = read_csv('SC9_080520.csv')
+SC9$ff_id = as.integer(SC9$ff_id)
+
+SC15 = read_csv('SC15_080520.csv')
+SC15$ff_id = as.integer(SC15$ff_id)
+
+Int9 = read_csv('Int9_102720.csv')
+Int9$ff_id = as.integer(Int9$ff_id)
+
+Ext9 = read_csv('Ext9_102720.csv')
+Ext9$ff_id = as.integer(Ext9$ff_id)
+
+Int15 = read_csv('Int_080520.csv')
+Int15$ff_id = as.integer(Int15$ff_id)
+
+Ext15 = read_csv('Ext_080520.csv')
+Ext15$ff_id = as.integer(Ext15$ff_id)
+
+Ext15_red = read_csv('Ext15_reduced_102720.csv')
+Ext15_red$ff_id = as.integer(Ext15_red$ff_id)
+
+PAF = read_csv('PAF_080520.csv')
+PAF$ff_id = as.integer(PAF$ff_id)
+
+# Merge things
+
+fs_scores_indiv = All_Variables %>% 
+  select(ff_id)
+
+fs_scores_indiv = fs_scores_indiv %>% 
+  left_join(SC9, by="ff_id")
+
+fs_scores_indiv = fs_scores_indiv %>% 
+  left_join(SC15, by="ff_id")
+
+fs_scores_indiv = fs_scores_indiv %>% 
+  left_join(Int9, by="ff_id")
+
+fs_scores_indiv = fs_scores_indiv %>% 
+  left_join(Ext9, by="ff_id")
+
+fs_scores_indiv = fs_scores_indiv %>% 
+  left_join(Int15, by="ff_id")
+
+fs_scores_indiv = fs_scores_indiv %>% 
+  left_join(Ext15, by="ff_id")
+
+fs_scores_indiv = fs_scores_indiv %>% 
+  left_join(Ext15_red, by="ff_id")
+
+fs_scores_indiv = fs_scores_indiv %>% 
+  left_join(PAF, by="ff_id")
+
+# It is important that all_variables2 is created first so that there are not doubles of the factor scores. 
+All_Variables2 = All_Variables %>% 
+  left_join(fs_scores_indiv, by="ff_id")
+
+All_Variables_Ext9Mod = All_Variables %>% 
+  right_join(fs_scores_ext9mod, by="ff_id")
+
+# Join everything together in the All_Variables dataframe. 
+All_Variables = All_Variables %>% 
+  left_join(fs_scores, by="ff_id")
+
+# This is adding the internalizing and externalizing factor scores separately into the All_Variables dataframe because they're not in the significant moderation model that we probe with the simple slopes but I want to show the mean/sd of the factor scores. 
+All_Variables = All_Variables %>% 
+  left_join(Int9, by="ff_id") %>% 
+  left_join(Ext9, by="ff_id") %>% 
+  left_join(Int15, by="ff_id") %>% 
+  left_join(Ext15_red, by="ff_id") %>% 
+  left_join(Ext15, by="ff_id")
+
+```
+
+This reverses any 99s that are marked in the MPlus data because MPlus doesn't take NAs. 
+```{r}
+
+is.na(All_Variables) <- All_Variables == 99
+is.na(All_Variables2) <- All_Variables2 == 99  
+is.na(All_Variables_Ext9Mod) <- All_Variables_Ext9Mod == 99
+
+
+```
+
+# Look at distributions of our variables
+
+```{r}
+library(ggpubr)
+
+PAF = All_Variables %>% 
+  ggplot(mapping = aes(x=PAF)) + xlab("Positive Adolescent Function") + geom_density() + theme_classic()
+
+Dep = All_Variables %>% 
+  ggplot(mapping = aes(x=DepComp)) + xlab("Social Deprivation") + geom_density() + theme_classic()
+
+Threat = All_Variables %>% 
+  ggplot(mapping = aes(x=ThreatComp)) + xlab("Violence Exposure") + geom_density() + theme_classic()
+
+SC9 = All_Variables %>% 
+  ggplot(mapping = aes(x=SC9)) + xlab("School Connectedness Age 9") + geom_density() + theme_classic()
+
+SC15 = All_Variables %>% 
+  ggplot(mapping = aes(x=SC15)) + xlab("School Connectedness Age 15") + geom_density() + theme_classic()
+
+Int9 =  All_Variables %>% 
+  ggplot(mapping = aes(x=Int9)) + xlab("Internalizing Psychopathology Age 9") + geom_density() + theme_classic()
+
+Ext9 =  All_Variables %>% 
+  ggplot(mapping = aes(x=Ext9)) + xlab("Externalizing Psychopathology Age 9") + geom_density() + theme_classic()
+
+Int15 =  All_Variables %>% 
+  ggplot(mapping = aes(x=Int)) + xlab("Internalizing Psychopathology Age 15") + geom_density() + theme_classic()
+
+Ext15 = All_Variables %>% 
+  ggplot(mapping = aes(x=Ext15)) + xlab("Externalizing Psychopathology Age 15") + geom_density() + theme_classic()
+
+figure <- ggarrange(PAF, Threat, Dep, SC9,SC15, Int9, Ext9, Int15,Ext15,
+                    ncol = 2, nrow = 6)
+
+figure
+
+```
+
+# Skewness and Kurtosis
+```{r}
+library(psych)
+
+psych::describe(All_Variables$ThreatComp) # -- this is potentially problematic, it seems like there are some serious kurtosis issues 
+psych::describe(All_Variables$DepComp)
+psych::describe(All_Variables$PAF)
+psych::describe(All_Variables$Int9)
+psych::describe(All_Variables$Ext9)
+psych::describe(All_Variables$Int)
+psych::describe(All_Variables$Ext15)
+psych::describe(All_Variables$SC9)
+psych::describe(All_Variables$SC15)
+
+```
+
+# Table Creation
+
+The code below creates:
+- Demographic Table
+- Correlation Table w/descriptives for our main variables. 
+
+```{r}
+# Import a categorical race variable because I had accidentally cut it out earlier.
+
+Race_Cat = read_csv('Race_Categorical.csv')
+Race_Cat$Race_Cat = as.factor(Race_Cat$Race_Cat)
+
+MatBirthVars = read_csv('Maternal_Birth_Variables.csv')
+MatBirthVars$m1b2 = as.factor(MatBirthVars$m1b2)
+MatBirthVars$cm1edu = as.factor(MatBirthVars$cm1edu)
+
+All_Variables = All_Variables %>% 
+  left_join(Race_Cat, by='ff_id') %>% 
+  left_join(MatBirthVars, by='ff_id')
+
+All_Variables2 = All_Variables2 %>% 
+  left_join(Race_Cat, by='ff_id') %>% 
+  left_join(MatBirthVars, by='ff_id')
+  
+All_Variables_Ext9Mod = All_Variables_Ext9Mod %>% 
+  left_join(Race_Cat, by='ff_id') %>% 
+  left_join(MatBirthVars, by='ff_id')
+
+ # This sex variable is created for the demographic table
+All_Variables = All_Variables %>% 
+  mutate(sex = case_when(
+    cm1bsex == 0 ~ 'Male',
+    cm1bsex == 1 ~ 'Female',
+    TRUE ~ 'NA'
+  ))
+
+All_Variables = All_Variables %>% 
+  mutate(MatMar = case_when(
+    m1b2 == 1 ~ 'Married',
+    m1b2 == 2 ~ 'Not Married',
+    TRUE ~ 'NA'
+  ),
+  MatEdu = case_when(
+    cm1edu == 1 ~ 'Less than high school',
+    cm1edu == 2 ~ 'High school or equivalent',
+    cm1edu == 3 ~ 'Some college or technical school',
+    cm1edu == 4 ~ 'College or graduate school',
+    TRUE ~ 'NA'
+  ))
+
+All_Variables2 = All_Variables2 %>% 
+  mutate(sex = case_when(
+    cm1bsex == 0 ~ 'Male',
+    cm1bsex == 1 ~ 'Female',
+    TRUE ~ 'NA'
+  ),
+  MatEdu = case_when(
+    cm1edu == 1 ~ 'Less than high school',
+    cm1edu == 2 ~ 'High school or equivalent',
+    cm1edu == 3 ~ 'Some college or technical school',
+    cm1edu == 4 ~ 'College or graduate school',
+    TRUE ~ 'NA'
+  ))
+```
+
+
+```{r}
+library(table1)
+library(MatchIt)
+
+
+table1::label(All_Variables$sex) = "Sex"
+table1::label(All_Variables$Race_Cat) = "Race-Ethnicity"
+table1::label(All_Variables$povco_avg) = "Average Poverty Ratio"
+table1::label(All_Variables$MatMar) = "Maternal Marital Status at Child's Birth"
+table1::label(All_Variables$MatEdu) = "Maternal Education at Child's Birth"
+
+table1::label(All_Variables$ThreatComp) = "Violence Exposure"
+table1::label(All_Variables$DepComp) = "Social Deprivation"
+table1::label(All_Variables$SC9) = "School Connectedness Age 9"
+table1::label(All_Variables$SC15) = "School Connectedness Age 15"
+table1::label(All_Variables$PAF) = "Positive Adolescent Function"
+table1::label(All_Variables$Int) = "Internalizing Symptoms Age 15"
+table1::label(All_Variables$Ext15) = "Externalizing Symptoms Age 15"
+table1::label(All_Variables$Int9) = "Internalizing Symptoms Age 9"
+table1::label(All_Variables$Ext9) = "Externalizing Symptoms Age 9"
+
+# This next piece is trying to use the people that would be in the MPlus model only
+fs_scores_id = fs_scores %>% 
+  select("ff_id")
+
+All_Variables_Red = All_Variables %>% 
+  right_join(fs_scores_id, by='ff_id')
+
+table1::table1(~sex + Race_Cat + povco_avg + MatMar + MatEdu, data = All_Variables_Red)
+
+table1::table1(~ThreatComp + DepComp + SC9 + SC15 + Int9 + Ext9 + Int + Ext15 + PAF, data = All_Variables)
+
+```
+```{r, eval=FALSE}
+CorTable = All_Variables %>% 
+  dplyr::select(ThreatComp, DepComp, SC9, SC15, Int9, Ext9, Int, Ext15, PAF)
+
+library(apaTables)
+
+apa.cor.table(CorTable, filename = '/Users/leighgoetschius/Box Sync/Shift_Persist_FF/Manuscript/Figures/cor_table_102720.doc', table.number = NA,
+  show.conf.interval = TRUE, landscape = TRUE)
+```
+
+Creating some interaction terms
+
+```{r}
+
+All_Variables = All_Variables %>% 
+  mutate(DepSC9 = SC9*DepComp,
+         DepSC15 = SC15*DepComp, 
+         ThrSC9 = SC9*ThreatComp, 
+         ThrSC15 = SC15*ThreatComp)
+
+All_Variables2 = All_Variables2 %>% 
+  mutate(DepSC9 = SC9*DepComp,
+         DepSC15 = SC15*DepComp, 
+         ThrSC9 = SC9*ThreatComp, 
+         ThrSC15 = SC15*ThreatComp)
+
+```
+
+
+
+### Looking at the SEM model in regression space
+
+#### Using factor scores extracted from the group CFA
+```{r}
+summary(lm(PAF ~ DepComp + ThreatComp, data = All_Variables))
+
+summary(lm(PAF ~ DepComp +  ThreatComp + SC9 + SC15, data = All_Variables))
+
+summary(lm(PAF ~ DepComp + SC9 + DepSC9 + ThreatComp  + SC15, data = All_Variables))
+summary(lm(PAF ~ DepComp  + SC9 + SC15 + DepSC9 + DepSC15, data = All_Variables))
+```
+
+#### Using factor scores extracted from the individual CFAs
+```{r}
+summary(lm(PAF ~ DepComp + ThreatComp, data = All_Variables2))
+
+summary(lm(PAF ~ DepComp +  ThreatComp + SC9 + SC15, data = All_Variables2))
+
+summary(lm(PAF ~ DepComp + SC9 + DepSC9 + ThreatComp  + SC15, data = All_Variables2))
+summary(lm(PAF ~ DepComp + ThreatComp  + SC9 + SC15 + DepSC9 + DepSC15, data = All_Variables2))
+```
+
+# Plot of the SC15 Effect
+```{r}
+PAF_form = lm(All_Variables2$PAF~All_Variables2$SC15)
+Int_form = lm(All_Variables2$Int~All_Variables2$SC15)
+Ext_form = lm(All_Variables2$Ext15~All_Variables2$SC15)
+
+PAF_SC15 = All_Variables2 %>% 
+  ggplot(aes(x=SC15, y=PAF)) +
+  geom_point(position="jitter") +
+  geom_smooth(method="lm", colour="skyblue3") + 
+  xlab("School Connectedness Age 15") + 
+  ylab("Positive Adolescent Function Age 15") +
+  stat_regline_equation(aes(label = paste(..adj.rr.label..)),formula = PAF_form) +
+  theme_classic() + 
+  theme(text = element_text(family='serif'))
+
+Int_SC15 = All_Variables2 %>% 
+  ggplot(aes(x=SC15, y=Int)) +
+  geom_point(position="jitter") +
+  geom_smooth(method="lm", colour="red") +
+  xlab("School Connectedness Age 15") + 
+  ylab("Internalizing Symptoms Age 15") +
+  stat_regline_equation(aes(label = paste(..adj.rr.label..)),formula = Int_form) +
+  theme_classic() + 
+  theme(text = element_text(family='serif'))
+
+
+Ext_SC15 =All_Variables2 %>% 
+  ggplot(aes(x=SC15, y=Ext15)) +
+  geom_point(position="jitter") + 
+  geom_smooth(method="lm", colour = "red")+
+  xlab("School Connectedness Age 15") + 
+  ylab("Externalizing Symptoms Age 15") +
+  stat_regline_equation(aes(label = paste(..adj.rr.label..)),formula = Ext_form) +
+  theme_classic() + 
+  theme(text = element_text(family='serif'))
+
+
+
+SC15_figure <- ggarrange(Int_SC15, Ext_SC15, PAF_SC15,
+                    ncol = 2, nrow = 2)
+
+SC15_figure
+
+```
+
+# Plot SC9 Contemporaneous Effect
+
+```{r}
+Int9_form = lm(All_Variables_Ext9Mod$Int9~All_Variables_Ext9Mod$SC9)
+Ext9_form = lm(All_Variables_Ext9Mod$Ext9~All_Variables_Ext9Mod$SC9)
+
+Int9_SC9 = All_Variables_Ext9Mod %>% 
+  ggplot(aes(x=SC9, y=Int9)) +
+  geom_point(position="jitter") +
+  geom_smooth(method="lm", colour="red") +
+  xlab("School Connectedness Age 9") + 
+  ylab("Internalizing Symptoms Age 9") +
+  stat_regline_equation(aes(label = paste(..adj.rr.label..)),formula = Int9_form) +
+  theme_classic() + 
+  #theme(text = element_text(family='serif'), )
+  theme(text = element_text(size=20))
+
+
+Ext9_SC9 =All_Variables_Ext9Mod %>% 
+  ggplot(aes(x=SC9, y=Ext9)) +
+  geom_point(position="jitter") + 
+  geom_smooth(method="lm", colour = "red")+
+  xlab("School Connectedness Age 9") + 
+  ylab("Externalizing Symptoms Age 9") +
+  stat_regline_equation(aes(label = paste(..adj.rr.label..)),formula = Ext9_form) +
+  theme_classic() + 
+  #theme(text = element_text(family='serif'), )
+  theme(text = element_text(size=20))
+
+
+
+SC9_figure <- ggarrange(Int9_SC9, Ext9_SC9,
+                    ncol = 2, nrow = 1)
+
+SC9_figure
+```
+
+# Probing the SDxSC9 Interaction
+
+```{r}
+# Center/Standardize the Variables
+All_Variables = All_Variables %>% 
+  mutate(PAF_scaled = scale(PAF),
+         DepComp_scaled = scale(DepComp),
+         SC9_scaled = scale(SC9))
+
+All_Variables_Red = All_Variables_Red %>% 
+  mutate(PAF_scaled = scale(PAF),
+         DepComp_scaled = scale(DepComp),
+         SC9_scaled = scale(SC9))
+
+# Set your model to a variable
+interact_mod = lm(PAF_scaled ~ DepComp_scaled * SC9_scaled, data = All_Variables_Red)
+
+# Interpret the interaction
+interact_plot(interact_mod, pred = DepComp_scaled, modx = SC9_scaled, interval = FALSE, rug = TRUE, rug.sides = 'bl', modx.labels = c("Low","Mean","High"), x.label = "Social Deprivation", y.label = "Positive Function Age 15", legend.main = "School Connectedness", data = All_Variables_Red) + geom_rect(aes(xmin=-2.79, xmax = 2.83, ymin=-4, ymax = 2), fill = 'light gray', alpha = 0.005, color = 'black') + theme_classic() + theme(text=element_text(size = 16, family="serif"))
+
+johnson_neyman(interact_mod, pred = DepComp_scaled, modx = SC9_scaled)
+johnson_neyman(interact_mod, pred = SC9_scaled, modx = DepComp_scaled)
+
+sim_slopes(interact_mod, pred = DepComp_scaled, modx = SC9_scaled, data = All_Variables, digits = 3)
+
+```
+```{r}
+# Getting coefficients, variances, and covariances for the Preacher interaction tool. 
+vcov(interact_mod)
+summary(interact_mod)
+
+psych::describe(All_Variables$SC9_scaled)
+psych::describe(All_Variables$DepComp_scaled)
+
+
+# Checking some model assumptions
+mean(interact_mod$residuals)
+t.test(interact_mod$residuals)
+plot(interact_mod)
+
+```
+
+```{r}
+library(MASS)
+sred = studres(interact_mod)
+
+hist(sred, freq=FALSE, 
+     main="Distribution of Studentized Residuals")
+xfit<-seq(min(sred),max(sred),length=40) 
+yfit<-dnorm(xfit) 
+lines(xfit, yfit)
+```
+
+
+## Preacher Output with School Connectedness at age 9 as the moderator
+http://www.quantpsy.org/interact/mlr2.htm
+
+              TWO-WAY INTERACTION SIMPLE SLOPES OUTPUT
+
+### Input
+  X1        = -1.58
+  X2        = 4.02
+  cv1       = -0.8
+  cv2       = -0.05
+  cv3       = 0.7
+  Intercept = -0.01456
+  X Slope   = -0.17225
+  Z Slope   = 0.2438
+  XZ Slope  = -0.07676
+  df        = 3700
+  alpha     = 0.05
+
+### Asymptotic (Co)variances
+  var(b0) 0.0001871
+  var(b1) 0.00065176
+  var(b2) 0.00034353
+  var(b3) 0.00132137
+  cov(b2,b0) 0.0000155
+  cov(b3,b1) 0.00007096
+
+### Region of Significance
+  Z at lower bound of region = -30.775
+  Z at upper bound of region = -1.0859
+  (simple slopes are significant *outside* this region.)
+
+### Simple Intercepts and Slopes at Conditional Values of Z
+  At Z = cv1...
+    simple intercept = -0.2096(0.0195), t=-10.7218, p=0
+    simple slope     = -0.1108(0.0372), t=-2.9796, p=0.0029
+  At Z = cv2...
+    simple intercept = -0.0267(0.0137), t=-1.9593, p=0.0502
+    simple slope     = -0.1684(0.0255), t=-6.616, p=0
+  At Z = cv3...
+    simple intercept = 0.1561(0.0194), t=8.0383, p=0
+    simple slope     = -0.226(0.0374), t=-6.0427, p=0
+
+### Simple Intercepts and Slopes at Region Boundaries
+  Lower Bound...    
+    simple intercept = -7.5175(0.5697), t=-13.1948, p=0
+    simple slope     = 2.19(1.117), t=1.9606, p=0.05
+  Upper Bound...    
+    simple intercept = -0.2793(0.0236), t=-11.8182, p=0
+    simple slope     = -0.0889(0.0453), t=-1.9606, p=0.05
+
+### Points to Plot
+  Line for cv1:  From {X=-1.58, Y=-0.0345} to {X=4.02, Y=-0.6552}
+  Line for cv2:  From {X=-1.58, Y=0.2393} to {X=4.02, Y=-0.7038}
+  Line for cv3:  From {X=-1.58, Y=0.5132} to {X=4.02, Y=-0.7523}
+
+```{r}
+xx <- c(-1.58,4.02)   #  <-- change to alter plot dims
+yy <- c(-1.0054,0.5132)   #  <-- change to alter plot dims
+leg <- c(-1.58,-0.8156)   #  <-- change to alter legend location
+x <- c(-1.58,4.02)   #  <-- x-coords for lines
+y1 <- c(-0.0345,-0.6552)
+y2 <- c(0.2393,-0.7038)
+y3 <- c(0.5132,-0.7523)
+plot(xx,yy,type='n',font=2,font.lab=2,xlab='Social Deprivation',ylab='Social Deprivation')
+lines(x,y1,lwd=3,lty=1,col=1)
+lines(x,y2,lwd=3,lty=5,col=2)
+lines(x,y3,lwd=3,lty=6,col=3)
+points(x,y1,col=1,pch=16)
+points(x,y2,col=1,pch=16)
+points(x,y3,col=1,pch=16)
+legend(leg[1],leg[2],legend=c('CVz1(1)','CVz1(2)','CVz1(3)'),lwd=c(3,3,3),lty=c(1,5,6),col=c(1,2,3))
+
+```
+
+```{r}
+z1=-10  #supply lower bound for z
+z2=10   #supply upper bound for z
+z <- seq(z1,z2,length=1000)
+fz <- c(z,z)
+y1 <- (-0.17225+-0.07676*z)+(1.9606*sqrt(0.0006517551+(2*z*0.0000709585)+((z^2)*0.001321372)))
+y2 <- (-0.17225+-0.07676*z)-(1.9606*sqrt(0.0006517551+(2*z*0.0000709585)+((z^2)*0.001321372)))
+fy <- c(y1,y2)
+fline <- (-0.17225+-0.07676*z)
+plot(fz,fy,type='p',pch='.',font=2,font.lab=2,col=2,xlab='Moderator',ylab='Simple Slope',main='Confidence Bands')
+lines(z,fline)
+f0 <- array(0,c(1000))
+lines(z,f0,col=8)
+abline(v=-30.775,col=4,lty=2)
+abline(v=-1.0859,col=4,lty=2)
+
+```
+
+## Preacher Output with Z-Scored/Centered Variables-  SC9 as Moderator
+       TWO-WAY INTERACTION SIMPLE SLOPES OUTPUT
+
+### Your Input
+  X1        = -2.79
+  X2        = 7.07
+  cv1       = -1
+  cv2       = 0
+  cv3       = 1
+  Intercept = -0.0008702
+  X Slope   = -0.1121783
+  Z Slope   = 0.2093617
+  XZ Slope  = -0.0375179
+  df        = 3710
+  alpha     = 0.05
+
+### Asymptotic (Co)variances
+  var(b0) 0.00025524
+  var(b1) 0.0002865
+  var(b2) 0.00025413
+  var(b3) 0.00031563
+  cov(b2,b0) -4e-8
+  cov(b3,b1) 0.00000322
+
+### Region of Significance
+  Z at lower bound of region = -41.772
+  Z at upper bound of region = -1.4145
+  (simple slopes are significant *outside* this region.)
+
+### Simple Intercepts and Slopes at Conditional Values of Z
+  At Z = cv1...
+    simple intercept = -0.2102(0.0226), t=-9.3142, p=0
+    simple slope     = -0.0747(0.0244), t=-3.059, p=0.0022
+  At Z = cv2...
+    simple intercept = -0.0009(0.016), t=-0.0545, p=0.9566
+    simple slope     = -0.1122(0.0169), t=-6.6274, p=0
+  At Z = cv3...
+    simple intercept = 0.2085(0.0226), t=9.2385, p=0
+    simple slope     = -0.1497(0.0247), t=-6.0681, p=0
+
+### Simple Intercepts and Slopes at Region Boundaries
+  Lower Bound...    
+    simple intercept = -8.7463(0.6661), t=-13.1305, p=0
+    simple slope     = 1.455(0.7421), t=1.9606, p=0.05
+  Upper Bound...    
+    simple intercept = -0.297(0.0276), t=-10.7468, p=0
+    simple slope     = -0.0591(0.0301), t=-1.9606, p=0.05
+
+### Points to Plot
+  Line for cv1:  From {X=-2.79, Y=-0.0019} to {X=7.07, Y=-0.7381}
+  Line for cv2:  From {X=-2.79, Y=0.3121} to {X=7.07, Y=-0.794}
+  Line for cv3:  From {X=-2.79, Y=0.6261} to {X=7.07, Y=-0.8499}
+
+## Who Does the Interaction NOT include
+
+According to the Johnson-Neyman intervals, when SC9 <-1.41 stdev and when social deprivation was > 2.83 stdev, they were outside of the range of the interaction. Let's see who that applies to. .
+
+```{r}
+All_Variables_Red %>% 
+  filter(SC9_scaled < -1.41) %>% 
+  summarize(n(),
+            mean(DepComp_scaled, na.rm = TRUE), 
+            min(DepComp_scaled), 
+            max(DepComp_scaled), 
+            mean(PAF_scaled, na.rm = TRUE), 
+            min(PAF_scaled),
+            max(PAF_scaled))
+```
+
+```{r}
+
+All_Variables_Red %>% 
+  filter(DepComp_scaled > 2.83) %>%  
+  summarize(n(),
+            mean(SC9_scaled, na.rm = TRUE), 
+            min(SC9_scaled, na.rm = TRUE), 
+            max(SC9_scaled, na.rm=TRUE), 
+            mean(PAF_scaled, na.rm = TRUE), 
+            min(PAF_scaled, na.rm = TRUE),
+            max(PAF_scaled, na.rm = TRUE))
+```
+
+
+```{r}
+All_Variables %>% 
+  filter(DepComp_scaled > 2.83 & SC9_scaled < -1.41) %>%  
+  summarize(n(),
+            mean(PAF_scaled, na.rm = TRUE), 
+            min(PAF_scaled, na.rm = TRUE),
+            max(PAF_scaled, na.rm = TRUE))
+```
+
+
+
+
+## Testing if the SDxSC9 Interaction Improves Fit
+
+I calculated this based on this MPlus page: https://www.statmodel.com/chidiff.shtml
+
+https://stats.idre.ucla.edu/mplus/faq/how-can-i-compute-a-chi-square-test-for-nested-models-with-the-mlr-or-mlm-estimators/#:~:text=Typically%20a%20chi%2Dsquare%20difference,freedom%20between%20the%20two%20models.
+
+It references this paper: Satorra, A., & Bentler, P. M. (2010). Ensuring Positiveness of the Scaled Difference Chi-square Test Statistic. Psychometrika, 75(2), 243–248. https://doi.org/10.1007/s11336-009-9135-y
+
+To Compute the Satorra-Bentler Scaled Chi-Square Difference Test: 
+
+To calculate the scaling factor: 
+
+cd=(p0 * c0 - p1*c1)/(p0 - p1)
+Where p=parameters and c=correction factor
+### Compared to Main Effects Model
+```{r}
+p0=105
+p1=107
+c0=1.0297
+c1=1.0298
+
+cd = (p0*c0-p1*c1)/(p0-p1)
+cd  
+```
+
+Then, the test statistic is as follows
+TRd = -2*(L0 - L1)/cd
+Where L=loglikelihood
+```{r}
+
+L0=-65863.626
+L1=-65859.958
+
+TRd = -2*(L0-L1)/cd
+TRd
+
+```
+
+This is compared to the chi-square distribution based on the degrees of freedom difference between the two models, in this case, it is 2. Therefore, our model with the interactions fits better than the main effects models. 
+
+```{r}
+
+df_paf=p1-p0
+qchisq(.95, df_paf)
+```
+
+Here is the p value for that difference test. 
+```{r}
+pchisq(TRd, df=df_paf, lower.tail=FALSE)
+```
+### Compared to Model with SC9xSD interaction fixed to 0
+
+```{r}
+p0=106
+p1=107
+c0=1.0295
+c1=1.0298
+L0=-65863.463
+L1=-65859.958
+
+df_paf=p1-p0
+
+cd = (p0*c0-p1*c1)/(p0-p1)
+TRd = -2*(L0-L1)/cd 
+
+TRd
+
+pchisq(TRd, df=df_paf, lower.tail=FALSE)
+```
+
+## Robustness Check of the Interaction 
+We tested if the method for extracting the factor scores made a difference in the interpretation of the interaction. The analyses below used factor scores extracted from CFAs containing ONLY one latent variable at a time. I'm using this as the robustness check rather than the preferred method because I think the overall latent variable moderation model accounts for correlations between the latent variables and these are picked up when extracting factor scores from CFAs with all of the latent variables included in the moderation model. 
+
+
+```{r}
+
+All_Variables2 = All_Variables2 %>% 
+  mutate(PAF_scaled = scale(PAF),
+         DepComp_scaled = scale(DepComp),
+         SC9_scaled = scale(SC9))
+
+interact_mod2 = lm(PAF_scaled ~ DepComp_scaled * SC9_scaled, data = All_Variables2)
+
+johnson_neyman(interact_mod2, pred = DepComp_scaled, modx = SC9_scaled)
+johnson_neyman(interact_mod2, pred = SC9_scaled, modx = DepComp_scaled)
+
+sim_slopes(interact_mod2, pred = DepComp_scaled, modx = SC9_scaled, data = All_Variables2, digits = 3)
+
+interact_plot(interact_mod2, pred = DepComp_scaled, modx = SC9_scaled, interval = TRUE, modx.labels = c("Low","Mean","High"), x.label = "Social Deprivation", y.label = "Positive Adolescent Function", legend.main = "School Connectedness", data = All_Variables2) + theme_classic() + theme(text=element_text(size = 16, family="serif"))
+
+
+```
+
+Here we check some model assumptions quickly and get the variance/covariance information necessary for the Preacher interaction tool. 
+
+```{r}
+# Testing assumptions about model residuals
+plot(interact_mod2)
+t.test(interact_mod2$residuals)
+mean(interact_mod2$residuals)
+
+# Getting coefficients, variances, and covariances for the Preacher interaction tool. 
+vcov(interact_mod2)
+summary(interact_mod2)
+
+psych::describe(All_Variables2$DepComp)
+psych::describe(All_Variables2$SC9)
+```
+
+```{r}
+library(MASS)
+sred = studres(interact_mod2)
+
+hist(sred, freq=FALSE, 
+     main="Distribution of Studentized Residuals")
+xfit<-seq(min(sred),max(sred),length=40) 
+yfit<-dnorm(xfit) 
+lines(xfit, yfit)
+```
+
+## Preacher Output with School Connectedness at age 9 as the moderator - Alternative Factor Score Extraction
+
+ TWO-WAY INTERACTION SIMPLE SLOPES OUTPUT
+
+### Your Input
+  X1        = -1.58
+  X2        = 4.02
+  cv1       = -0.82
+  cv2       = -0.05
+  cv3       = 0.72
+  Intercept = -0.01811
+  X Slope   = -0.18542
+  Z Slope   = 0.12811
+  XZ Slope  = -0.08521
+  df        = 3030
+  alpha     = 0.05
+
+### Asymptotic (Co)variances
+  var(b0) 0.00025227
+  var(b1) 0.00092455
+  var(b2) 0.00042312
+  var(b3) 0.00160921
+  cov(b2,b0) 0.00002043
+  cov(b3,b1) 0.00012491
+
+### Region of Significance
+  Z at lower bound of region = -27.4825
+  Z at upper bound of region = -1.0443
+  (simple slopes are significant *outside* this region.)
+
+### Simple Intercepts and Slopes at Conditional Values of Z
+  At Z = cv1...
+    simple intercept = -0.1232(0.0224), t=-5.49, p=0
+    simple slope     = -0.1155(0.0424), t=-2.7222, p=0.0065
+  At Z = cv2...
+    simple intercept = -0.0245(0.0159), t=-1.5465, p=0.1221
+    simple slope     = -0.1812(0.0303), t=-5.9854, p=0
+  At Z = cv3...
+    simple intercept = 0.0741(0.0224), t=3.3117, p=0.0009
+    simple slope     = -0.2468(0.044), t=-5.6046, p=0
+
+### Simple Intercepts and Slopes at Region Boundaries
+  Lower Bound...    
+    simple intercept = -3.5389(0.5645), t=-6.2686, p=0
+    simple slope     = 2.1564(1.0998), t=1.9608, p=0.05
+  Upper Bound...    
+    simple intercept = -0.1519(0.0259), t=-5.8637, p=0
+    simple slope     = -0.0964(0.0492), t=-1.9609, p=0.05
+
+### Points to Plot
+  Line for cv1:  From {X=-1.58, Y=0.0594} to {X=4.02, Y=-0.5877}
+  Line for cv2:  From {X=-1.58, Y=0.2617} to {X=4.02, Y=-0.7528}
+  Line for cv3:  From {X=-1.58, Y=0.464} to {X=4.02, Y=-0.9179}
+
+## Preacher Output with Alternative Factor Extraction and Scaled Variables - SC9 as moderator
+
+       TWO-WAY INTERACTION SIMPLE SLOPES OUTPUT
+
+### Your Input
+  X1        = -1.58
+  X2        = 4.02
+  cv1       = -1
+  cv2       = 0
+  cv3       = 1
+  Intercept = -0.002005
+  X Slope   = -0.116525
+  Z Slope   = 0.111535
+  XZ Slope  = -0.0423
+  df        = 3710
+  alpha     = 0.05
+
+### Asymptotic (Co)variances
+  var(b0) 0.00032174
+  var(b1) 0.00037875
+  var(b2) 0.00032289
+  var(b3) 0.00039657
+  cov(b2,b0) -1e-8
+  cov(b3,b1) 0.00001458
+
+### Region of Significance
+  Z at lower bound of region = -35.5029
+  Z at upper bound of region = -1.289
+  (simple slopes are significant *outside* this region.)
+
+### Simple Intercepts and Slopes at Conditional Values of Z
+  At Z = cv1...
+    simple intercept = -0.1135(0.0254), t=-4.4718, p=0
+    simple slope     = -0.0742(0.0273), t=-2.7173, p=0.0066
+  At Z = cv2...
+    simple intercept = -0.002(0.0179), t=-0.1118, p=0.911
+    simple slope     = -0.1165(0.0195), t=-5.9875, p=0
+  At Z = cv3...
+    simple intercept = 0.1095(0.0254), t=4.3141, p=0
+    simple slope     = -0.1588(0.0284), t=-5.5997, p=0
+
+### Simple Intercepts and Slopes at Region Boundaries
+  Lower Bound...    
+    simple intercept = -3.9618(0.6382), t=-6.2077, p=0
+    simple slope     = 1.3852(0.7065), t=1.9606, p=0.05
+  Upper Bound...    
+    simple intercept = -0.1458(0.0293), t=-4.9759, p=0
+    simple slope     = -0.062(0.0316), t=-1.9605, p=0.05
+
+### Points to Plot
+  Line for cv1:  From {X=-1.58, Y=0.0037} to {X=4.02, Y=-0.4119}
+  Line for cv2:  From {X=-1.58, Y=0.1821} to {X=4.02, Y=-0.4704}
+  Line for cv3:  From {X=-1.58, Y=0.3605} to {X=4.02, Y=-0.5289}
+
+
+# Testing whether our results are driven by the PAF connectedness subscale
+
+Based on the results below, it doesn't seem like it's driven by the connectedness subscale of the PAF scale, which is really good! 
+
+```{r}
+fs_scores_noconn = read_csv('FactorScores_NoConnPAF_071720.csv')
+
+fs_scores_noconn$ff_id = as.integer(fs_scores_noconn$ff_id)
+```
+
+```{r}
+
+All_Variables_NoConn = read_csv('/Volumes/csmonk/csmonk-lab/Data/Fragile_Families_Longitudinal/Leigh_FFCWS/VE_SD_IntExtPAF_SchoolConn_090420.csv')
+
+All_Variables_NoConn = All_Variables_NoConn %>% 
+  left_join(fs_scores_noconn, by="ff_id")
+
+is.na(All_Variables_NoConn) <- All_Variables_NoConn == 99
+```
+
+```{r}
+
+All_Variables_NoConn = All_Variables_NoConn %>% 
+  mutate(DepSC9 = SC9*DepComp,
+         DepSC15 = SC15*DepComp,
+         ThrSC9 = SC9*ThreatComp,
+         ThrSC15 = SC15*ThreatComp)
+
+```
+
+
+```{r}
+summary(lm(PAF_NoConn ~ DepComp * SC9 + ThreatComp + SC15 + ThrSC9, data = All_Variables_NoConn))
+
+```
+
+# Digging into signifcant covariate effects
+
+```{r}
+AA_Data = All_Variables %>% 
+  filter(Race_AA == 1)
+
+summary(lm(PAF ~ DepComp +  ThreatComp + SC9 + SC15 + DepSC9 + DepSC15, data = AA_Data))
+
+```
+
+```{r}
+C_Data = All_Variables %>% 
+  filter(Race_C == 1)
+
+summary(lm(PAF ~ DepComp +  ThreatComp + SC9 + SC15 + DepSC9 + DepSC15, data = C_Data))
+```
+
+```{r}
+L_Data = All_Variables %>% 
+  filter(Race_L == 1)
+
+summary(lm(PAF ~ DepComp +  ThreatComp + SC9 + SC15 + DepSC9 + DepSC15, data = L_Data))
+
+```
+
+```{r}
+All_Variables %>% 
+  drop_na(Race_Cat) %>% 
+  ggplot(aes(factor(Race_Cat), ThreatComp)) + geom_violin() + ylab('Violence Exposure') + xlab(' ')
+
+All_Variables %>% 
+  drop_na(Race_Cat) %>% 
+  ggplot(aes(factor(Race_Cat), DepComp)) + geom_violin() + ylab('Social Deprivation') + xlab(' ')
+
+
+summary(aov(ThreatComp~Race_Cat, data = All_Variables))
+summary(aov(DepComp~Race_Cat, data = All_Variables))
+
+All_Variables %>% 
+  group_by(Race_Cat) %>% 
+  summarize(VE_Mean = mean(ThreatComp, na.rm=TRUE), SD_Mean = mean(DepComp, na.rm = TRUE))
+```
+## Who is the Primary Caregiver? 
+
+Age 3: IH3int5
+01 Bio Mother
+02 Bio Father
+03 Mat Grandmother
+04 Pat Grandmother
+05 Other Relative
+06 Other Non-Relative
+07 Mat Grandmother
+08 Mat Grandfather
+
+Age5: IH5int5
+01 Bio Mother
+02 Bio Father
+03 Mat Grandmother
+04 Pat Grandmother
+05 Other Relative
+06 Other Non-Relative
+07 Mat Grandmother
+08 Mat Grandfather
+
+Age 9: pcg5idstat
+61	Bio Mother	
+63	Other	
+62	Bio Father	
+```{r}
+
+PC_Info = read_csv('primary_caregiver_relationships.csv')
+
+PC_Info %>% 
+  group_by(IH3int5) %>% 
+  summarize(n())
+
+PC_Info %>% 
+  group_by(IH5int5) %>% 
+  summarize(n())
+
+PC_Info %>% 
+  group_by(pcg5idstat) %>% 
+  summarize(n())
+
+
+```
+## Correlation between Age 9 and Age 15 CBCL scores
+
+```{r}
+
+cor.test(All_Variables$Intern_CBCL15, All_Variables$InternCBCL9)
+
+cor.test(All_Variables$Extern_CBCL15, All_Variables$ExternCBCL9)
+
+```
+
+
+# Extra Analyses
+
+## Regressions with externalizing outside of Mplus
+
+### Age 9
+```{r, eval=FALSE}
+summary(lm(Ext9 ~ DepComp + ThreatComp, data = All_Variables))
+
+summary(lm(Ext9 ~ DepComp +  ThreatComp + SC9, data = All_Variables))
+
+summary(lm(Ext9 ~ DepComp +  ThreatComp + SC9 + DepSC9 + ThrSC9, data = All_Variables))
+```
+
+### Age 15
+```{r, eval=FALSE}
+summary(lm(Ext15 ~ DepComp + ThreatComp, data = All_Variables))
+
+summary(lm(Ext15 ~ DepComp +  ThreatComp + SC9 + SC15, data = All_Variables))
+
+summary(lm(Ext15 ~ DepComp +  ThreatComp + SC9 + SC15 + DepSC9 + DepSC15 + ThrSC9 + ThrSC15, data = All_Variables))
+```
+
+## Regressions with internalizing outside of Mplus
+
+### Age 9
+
+```{r, eval=FALSE}
+summary(lm(Int9 ~ DepComp + ThreatComp, data = All_Variables))
+
+summary(lm(Int9 ~ DepComp +  ThreatComp + SC9, data = All_Variables))
+
+summary(lm(Int9 ~ DepComp +  ThreatComp + SC9 + DepSC9 + ThrSC9, data = All_Variables))
+```
+
+### Age 15
+```{r, eval=FALSE}
+summary(lm(Int ~ DepComp + ThreatComp, data = All_Variables))
+
+summary(lm(Int ~ DepComp +  ThreatComp + SC9 + SC15, data = All_Variables))
+
+summary(lm(Int ~ DepComp +  ThreatComp + SC9 + SC15 + DepSC9 + DepSC15 + ThrSC9 + ThrSC15, data = All_Variables))
+```
+
+## Regressions with PAF outside of Mplus
+
+```{r, eval=FALSE}
+summary(lm(PAF ~ DepComp +  ThreatComp + SC9 + SC15 + DepSC9, data = All_Variables))
+
+summary(lm(PAF ~ DepComp +  ThreatComp + SC9 + SC15 + DepSC9 + DepSC15, data = All_Variables))
+
+
+summary(lm(PAF ~ DepComp +  ThreatComp + SC9 + SC15 + DepSC9 + DepSC15 + cm1bsex, data = All_Variables))
+
+summary(lm(PAF ~ DepComp +  ThreatComp + SC9 + SC15 + DepSC9 + DepSC15 + cm1bsex + povco_avg + Race_AA + Race_C + Race_L, data = All_Variables))
+
+```
+
+## Interaction with SD and SC9 for Ext9
+
+```{r}
+
+All_Variables = All_Variables %>% 
+  mutate(DepComp_scaled = scale(DepComp),
+         SC9_scaled = scale(SC9),
+         Ext9_scaled = scale(Ext9))
+
+DepSC9 = lm(Ext9_scaled ~ DepComp_scaled * SC9_scaled + ThreatComp + ThrSC9, data = All_Variables)
+summary(DepSC9)
+```
+
+```{r}
+interact_plot(DepSC9, pred = DepComp_scaled, modx = SC9_scaled, interval = FALSE, rug = TRUE, rug.sides = 'bl', x.label = "Social Deprivation", y.label = "Externalizing Symptoms Age 9", legend.main = "School Connectedness", data = All_Variables_Red) + theme_classic() + geom_rect(aes(xmin=-2.79, xmax = 1.22, ymin=-1.5, ymax = 5), fill = 'light gray', alpha = 0.005, color = 'black') + theme(text=element_text(size = 16, family="serif"))
+
+interact_plot(DepSC9, pred = SC9_scaled, modx = DepComp_scaled, interval = TRUE, x.label = "School Connectedness", y.label = "Externalizing Sx Age 9", legend.main = "Social Deprivation", data = All_Variables) + theme_classic() 
+
+johnson_neyman(DepSC9, pred = DepComp_scaled, modx = SC9_scaled)
+johnson_neyman(DepSC9, pred = SC9_scaled, modx = DepComp_scaled)
+
+sim_slopes(DepSC9, pred = DepComp_scaled, modx = SC9_scaled, data = All_Variables, digits = 3)
+```
+Based on the simple slopes/regions of significance, it seems like this interaction covers a similar story as the one predicting PAF, but in a much smaller range of values. It seems like school connectedness is more protective for those with lower social deprivation, but the regions where that is the case are much smaller and I think it will not add much to the main effects that we have which show the same thing. 
+
+### Who does this interaction not apply to? 
+
+```{r}
+All_Variables_Red %>% 
+   filter(DepComp_scaled > 1.22) %>%  
+   summarize(n(),
+             mean(SC9_scaled, na.rm = TRUE), 
+             min(SC9_scaled, na.rm = TRUE), 
+             max(SC9_scaled, na.rm=TRUE), 
+             mean(Ext9_scaled, na.rm = TRUE), 
+             min(Ext9_scaled, na.rm = TRUE),
+             max(Ext9_scaled, na.rm = TRUE))
+
+All_Variables_Red %>% 
+   filter(SC9_scaled < -1.31) %>%  
+   summarize(n(),
+             mean(DepComp_scaled, na.rm = TRUE), 
+             min(DepComp_scaled, na.rm = TRUE), 
+             max(DepComp_scaled, na.rm=TRUE), 
+             mean(Ext9_scaled, na.rm = TRUE), 
+             min(Ext9_scaled, na.rm = TRUE),
+             max(Ext9_scaled, na.rm = TRUE))
+```
+```{r}
+# Getting coefficients, variances, and covariances for the Preacher interaction tool. 
+vcov(DepSC9)
+summary(DepSC9)
+
+psych::describe(All_Variables_Red$SC9_scaled)
+psych::describe(All_Variables_Red$DepComp_scaled)
+```
+       
+### Preacher Output
+       
+       TWO-WAY INTERACTION SIMPLE SLOPES OUTPUT
+
+#### Your Input
+  X1        = -2.79
+  X2        = 7.07
+  cv1       = -1
+  cv2       = 0
+  cv3       = 1
+  Intercept = -0.007491
+  X Slope   = 0.11976
+  Z Slope   = -0.110588
+  XZ Slope  = 0.045613
+  df        = 3305
+  alpha     = 0.05
+
+#### Asymptotic (Co)variances
+  var(b0) 0.00025972
+  var(b1) 0.00036638
+  var(b2) 0.00023612
+  var(b3) 0.00035245
+  cov(b2,b0) 2.3e-7
+  cov(b3,b1) 0.00001002
+
+#### Region of Significance
+  Z at lower bound of region = -13.644
+  Z at upper bound of region = -1.3064
+  (simple slopes are significant *outside* this region.)
+
+Simple Intercepts and Slopes at Conditional Values of Z
+=======================================================
+  At Z = cv1...
+    simple intercept = 0.1031(0.0223), t=4.6321, p=0
+    simple slope     = 0.0741(0.0264), t=2.8049, p=0.0051
+  At Z = cv2...
+    simple intercept = -0.0075(0.0161), t=-0.4648, p=0.6421
+    simple slope     = 0.1198(0.0191), t=6.2567, p=0
+  At Z = cv3...
+    simple intercept = -0.1181(0.0223), t=-5.3003, p=0
+    simple slope     = 0.1654(0.0272), t=6.0838, p=0
+
+#### Simple Intercepts and Slopes at Region Boundaries
+  Lower Bound...    
+    simple intercept = 1.5014(0.2103), t=7.1406, p=0
+    simple slope     = -0.5026(0.2563), t=-1.9607, p=0.05
+  Upper Bound...    
+    simple intercept = 0.137(0.0257), t=5.3235, p=0
+    simple slope     = 0.0602(0.0307), t=1.9608, p=0.05
+
+#### Points to Plot
+  Line for cv1:  From {X=-2.79, Y=-0.1038} to {X=7.07, Y=0.6273}
+  Line for cv2:  From {X=-2.79, Y=-0.3416} to {X=7.07, Y=0.8392}
+  Line for cv3:  From {X=-2.79, Y=-0.5795} to {X=7.07, Y=1.0511}
+  
+```{r}
+xx <- c(-2.79,7.07)   #  <-- change to alter plot dims
+yy <- c(-0.9056,1.0511)   #  <-- change to alter plot dims
+leg <- c(-2.79,-0.661)   #  <-- change to alter legend location
+x <- c(-2.79,7.07)   #  <-- x-coords for lines
+y1 <- c(-0.1038,0.6273)
+y2 <- c(-0.3416,0.8392)
+y3 <- c(-0.5795,1.0511)
+plot(xx,yy,type='n',font=2,font.lab=2,xlab='X',ylab='Y',main='MLR 2-Way Interaction Plot')
+lines(x,y1,lwd=3,lty=1,col=1)
+lines(x,y2,lwd=3,lty=5,col=2)
+lines(x,y3,lwd=3,lty=6,col=3)
+points(x,y1,col=1,pch=16)
+points(x,y2,col=1,pch=16)
+points(x,y3,col=1,pch=16)
+legend(leg[1],leg[2],legend=c('CVz1(1)','CVz1(2)','CVz1(3)'),lwd=c(3,3,3),lty=c(1,5,6),col=c(1,2,3))
+
+```
+
+## Alternative Way of Extracting Factor Scores
+
+```{r}
+
+All_Variables_Ext9Mod = All_Variables_Ext9Mod %>% 
+  mutate(DepComp_scaled = scale(DepComp),
+         SC9_scaled = scale(SC9),
+         Ext9_scaled = scale(Ext9))
+
+All_Variables_Ext9Mod = All_Variables_Ext9Mod %>% 
+  mutate(DepSC9 = SC9*DepComp,
+         DepSC15 = SC15*DepComp, 
+         ThrSC9 = SC9*ThreatComp, 
+         ThrSC15 = SC15*ThreatComp)
+
+DepSC9_together = lm(Ext9_scaled ~ DepComp_scaled * SC9_scaled + ThreatComp + ThrSC9, data = All_Variables_Ext9Mod)
+summary(DepSC9_together)
+
+
+```
+
+```{r}
+interact_plot(DepSC9_together, pred = DepComp_scaled, modx = SC9_scaled, interval = FALSE, rug = TRUE, rug.sides = 'bl', modx.labels = c("Low","Mean","High"), x.label = "Social Deprivation", y.label = "Externalizing Symptoms Age 9", legend.main = "School Connectedness", data = All_Variables_Ext9Mod) + theme_classic()  + theme(text=element_text(size = 16, family="serif")) + geom_rect(aes(xmin=-2.9, xmax = 2.56, ymin=-2, ymax = 6), fill = 'light gray', alpha = 0.005, color = 'black')
+
+interact_plot(DepSC9, pred = SC9_scaled, modx = DepComp_scaled, interval = TRUE, x.label = "School Connectedness", y.label = "Externalizing Sx Age 9", legend.main = "Social Deprivation", data = All_Variables) + theme_classic() 
+
+johnson_neyman(DepSC9_together, pred = DepComp_scaled, modx = SC9_scaled)
+johnson_neyman(DepSC9_together, pred = SC9_scaled, modx = DepComp_scaled)
+
+sim_slopes(DepSC9_together, pred = DepComp_scaled, modx = SC9_scaled, data = All_Variables_Ext9Mod, digits = 3)
+```
+### Who does this interaction not apply to? 
+
+```{r}
+All_Variables_Ext9Mod %>% 
+   filter(DepComp_scaled > 2.55) %>%  
+   summarize(n(),
+             mean(SC9_scaled, na.rm = TRUE), 
+             min(SC9_scaled, na.rm = TRUE), 
+             max(SC9_scaled, na.rm=TRUE), 
+             mean(Ext9_scaled, na.rm = TRUE), 
+             min(Ext9_scaled, na.rm = TRUE),
+             max(Ext9_scaled, na.rm = TRUE))
+
+All_Variables_Ext9Mod %>% 
+   filter(SC9_scaled < -1.55) %>%  
+   summarize(n(),
+             mean(DepComp_scaled, na.rm = TRUE), 
+             min(DepComp_scaled, na.rm = TRUE), 
+             max(DepComp_scaled, na.rm=TRUE), 
+             mean(Ext9_scaled, na.rm = TRUE), 
+             min(Ext9_scaled, na.rm = TRUE),
+             max(Ext9_scaled, na.rm = TRUE))
+```
+
+#### Output needed for Preacher Tool
+```{r}
+vcov(DepSC9_together)
+summary(DepSC9_together)
+
+psych::describe(All_Variables_Ext9Mod$SC9_scaled)
+psych::describe(All_Variables_Ext9Mod$DepComp_scaled)
+```
+
+### Preacher Output: SDxSC9 --> Ext9
+
+       TWO-WAY INTERACTION SIMPLE SLOPES OUTPUT
+
+#### Your Input
+  X1        = -2.75
+  X2        = 7
+  cv1       = -1
+  cv2       = 0
+  cv3       = 1
+  Intercept = 0.001225
+  X Slope   = 0.122823
+  Z Slope   = -0.194288
+  XZ Slope  = 0.039198
+  df        = 3729
+  alpha     = 0.05
+
+#### Asymptotic (Co)variances
+  var(b0) 0.00022993
+  var(b1) 0.00027785
+  var(b2) 0.00022915
+  var(b3) 0.00030772
+  cov(b2,b0) -6e-7
+  cov(b3,b1) 0.00000794
+
+#### Region of Significance
+  Z at lower bound of region = -25.5005
+  Z at upper bound of region = -1.5544
+  (simple slopes are significant *outside* this region.)
+
+#### Simple Intercepts and Slopes at Conditional Values of Z
+  At Z = cv1...
+    simple intercept = 0.1955(0.0215), t=9.1131, p=0
+    simple slope     = 0.0836(0.0239), t=3.5036, p=0.0005
+  At Z = cv2...
+    simple intercept = 0.0012(0.0152), t=0.0808, p=0.9356
+    simple slope     = 0.1228(0.0167), t=7.3684, p=0
+  At Z = cv3...
+    simple intercept = -0.1931(0.0214), t=-9.0225, p=0
+    simple slope     = 0.162(0.0245), t=6.6064, p=0
+
+#### Simple Intercepts and Slopes at Region Boundaries
+  Lower Bound...    
+    simple intercept = 4.9557(0.3864), t=12.8267, p=0
+    simple slope     = -0.8767(0.4472), t=-1.9606, p=0.05
+  Upper Bound...    
+    simple intercept = 0.3032(0.028), t=10.8195, p=0
+    simple slope     = 0.0619(0.0316), t=1.9605, p=0.05
+
+#### Points to Plot
+  Line for cv1:  From {X=-2.75, Y=-0.0345} to {X=7, Y=0.7809}
+  Line for cv2:  From {X=-2.75, Y=-0.3365} to {X=7, Y=0.861}
+  Line for cv3:  From {X=-2.75, Y=-0.6386} to {X=7, Y=0.9411}
+  
+```{r}
+xx <- c(-2.75,7)   #  <-- change to alter plot dims
+yy <- c(-0.9546,0.9411)   #  <-- change to alter plot dims
+leg <- c(-2.75,-0.7176)   #  <-- change to alter legend location
+x <- c(-2.75,7)   #  <-- x-coords for lines
+y1 <- c(-0.0345,0.7809)
+y2 <- c(-0.3365,0.861)
+y3 <- c(-0.6386,0.9411)
+plot(xx,yy,type='n',font=2,font.lab=2,xlab='X',ylab='Y',main='MLR 2-Way Interaction Plot')
+lines(x,y1,lwd=3,lty=1,col=1)
+lines(x,y2,lwd=3,lty=5,col=2)
+lines(x,y3,lwd=3,lty=6,col=3)
+points(x,y1,col=1,pch=16)
+points(x,y2,col=1,pch=16)
+points(x,y3,col=1,pch=16)
+legend(leg[1],leg[2],legend=c('CVz1(1)','CVz1(2)','CVz1(3)'),lwd=c(3,3,3),lty=c(1,5,6),col=c(1,2,3))
+
+```
+  
+
+
+### Testing if the SDxSC9 Interaction Improves Fit
+
+I calculated this based on this MPlus page: https://www.statmodel.com/chidiff.shtml
+
+It references this paper: Satorra, A., & Bentler, P. M. (2010). Ensuring Positiveness of the Scaled Difference Chi-square Test Statistic. Psychometrika, 75(2), 243–248. https://doi.org/10.1007/s11336-009-9135-y
+
+To Compute the Satorra-Bentler Scaled Chi-Square Difference Test: 
+
+To calculate the scaling factor: 
+
+cd=(p0 * c0 - p1*c1)/(p0 - p1)
+Where p=parameters and c=correction factor
+#### Where there are interactions but the SC9xSD interaction is set to 0
+```{r}
+p0=313
+p1=314
+c0=1.0360
+c1=1.0372
+
+cd=(p0*c0-p1*c1)/(p0-p1)
+cd  
+```
+
+Then, the test statistic is as follows
+TRd = -2*(L0 - L1)/cd
+Where L=loglikelihood
+```{r}
+
+L0=-164171.037
+L1=-164166.232
+
+TRd=-2*(L0-L1)/cd
+TRd
+
+```
+
+This is compared to the chi-square distribution based on the degrees of freedom difference between the two models, in this case, it is 2. Therefore, our model with the interactions fits better than the main effects models. 
+
+```{r}
+
+df=p1-p0
+df
+qchisq(.95, df)
+```
+
+Here is the p value for that difference test. 
+```{r}
+pchisq(TRd, df=df, lower.tail=FALSE)
+```
+
+#### Model with main effects only
+```{r}
+p0=302
+p1=314
+c0=1.0311
+c1=1.0372
+L0=-164181.169
+L1=-164166.232
+
+cd=(p0*c0-p1*c1)/(p0-p1)
+TRd=-2*(L0-L1)/cd
+df=p1-p0
+
+TRd
+pchisq(TRd, df=df, lower.tail=FALSE)
+
+
+```
+
+### Model with SC9 Interactions Only (Consistent with the PAF Models)
+
+#### Compared with Main Effects Only Model
+```{r}
+p0=302
+p1=310
+c0=1.0311
+c1=1.0349
+L0=-164181.169
+L1=-164170.113
+
+cd=(p0*c0-p1*c1)/(p0-p1)
+TRd=-2*(L0-L1)/cd
+df=p1-p0
+
+TRd
+pchisq(TRd, df=df, lower.tail=FALSE)
+
+
+```
+
+#### Compared with Model with SC9xSD --> Ext9 path set to 0
+```{r}
+p0=309
+p1=310
+c0=1.0337
+c1=1.0349
+L0=-164174.692
+L1=-164170.113
+
+cd=(p0*c0-p1*c1)/(p0-p1)
+TRd=-2*(L0-L1)/cd
+df=p1-p0
+
+TRd
+pchisq(TRd, df=df, lower.tail=FALSE)
+```
+
+Then, the test statistic is as follows
+TRd = -2*(L0 - L1)/cd
+Where L=loglikelihood
+```{r}
+
+
+
+```
+
+This is compared to the chi-square distribution based on the degrees of freedom difference between the two models, in this case, it is 2. Therefore, our model with the interactions fits better than the main effects models. 
+
+```{r}
+
+
+```
+
+Here is the p value for that difference test. 
+```{r}
